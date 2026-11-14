@@ -214,9 +214,9 @@ bg.innerHTML = `<defs>
   <filter id="soft" x="-30%" y="-60%" width="160%" height="220%"><feGaussianBlur stdDeviation="24"/></filter>
   <filter id="paint" x="-4%" y="-4%" width="108%" height="108%" color-interpolation-filters="sRGB">
     <feTurbulence type="fractalNoise" baseFrequency="0.014" numOctaves="2" seed="4" result="warp"/>
-    <feDisplacementMap in="SourceGraphic" in2="warp" scale="11" xChannelSelector="R" yChannelSelector="G" result="d1"/>
+    <feDisplacementMap in="SourceGraphic" in2="warp" scale="2.6" xChannelSelector="R" yChannelSelector="G" result="d1"/>
     <feTurbulence type="fractalNoise" baseFrequency="0.09" numOctaves="1" seed="11" result="jit"/>
-    <feDisplacementMap in="d1" in2="jit" scale="3.4" xChannelSelector="G" yChannelSelector="R" result="d2"/>
+    <feDisplacementMap in="d1" in2="jit" scale="1.5" xChannelSelector="G" yChannelSelector="R" result="d2"/>
     <feColorMatrix in="d2" type="saturate" values=".74" result="d"/>
     <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="9" result="grain"/>
     <feColorMatrix in="grain" type="matrix" values="0 0 0 0 .25  0 0 0 0 .18  0 0 0 0 .1  0 0 0 -.7 .4" result="speck"/>
@@ -231,7 +231,7 @@ fx.innerHTML = `<defs>
 
 const gSky   = el('g', {}, bg);
 const gFar   = el('g', { filter: 'url(#paint)', opacity: .5 }, bg);
-const gChurch= el('g', { filter: 'url(#paint)', opacity: .72 }, bg);
+const gChurch= el('g', { filter: 'url(#paint)', opacity: .94 }, bg);
 const gBack  = el('g', { filter: 'url(#paint)', opacity: .8 }, bg);
 const gGround= el('g', { filter: 'url(#paint)' }, bg);
 const gBld   = el('g', {}, bg);
@@ -261,26 +261,40 @@ nf(gSky, 'rect', { width: W, height: H, fill: 'url(#skyG)' });
 
 /* ============================== Eiffel Tower ======================= */
 (function () {
-  const cx = 800, base = G - 8, Ht = 500;
-  const prof = [[0,.19],[.06,.15],[.12,.122],[.17,.106],[.23,.088],[.30,.07],[.35,.06],[.45,.045],[.58,.034],[.70,.026],[.84,.0185],[.92,.011],[1,.003]];
-  const P = prof.map(([f, hw]) => [f, hw * Ht]);
-  const Y = f => base - f * Ht;
-  const L = P.map(([f, h]) => `${(cx - h).toFixed(1)},${Y(f).toFixed(1)}`);
-  const Rr = P.map(([f, h]) => `${(cx + h).toFixed(1)},${Y(f).toFixed(1)}`);
-  nf(gChurch, 'polygon', { points: [...L, ...Rr.slice().reverse()].join(' '), fill: '#b9b1c2', opacity: .55 });
-  ln(gChurch, 'polyline', { points: L.join(' '), fill: 'none', 'stroke-width': 2.4 });
-  ln(gChurch, 'polyline', { points: Rr.join(' '), fill: 'none', 'stroke-width': 2.4 });
-  for (let i = 0; i < P.length - 1; i++) {
-    const [f0, h0] = P[i], [f1, h1] = P[i + 1];
-    ln(gChurch, 'line', { x1: cx - h0, y1: Y(f0), x2: cx + h1, y2: Y(f1), 'stroke-width': 1 });
-    ln(gChurch, 'line', { x1: cx + h0, y1: Y(f0), x2: cx - h1, y2: Y(f1), 'stroke-width': 1 });
-    ln(gChurch, 'line', { x1: cx - h1, y1: Y(f1), x2: cx + h1, y2: Y(f1), 'stroke-width': 1 });
-  }
-  [[.17, .106], [.35, .06], [.84, .0185]].forEach(([f, hw]) =>
-    ln(gChurch, 'rect', { x: cx - hw * Ht - 9, y: Y(f) - 4, width: hw * Ht * 2 + 18, height: 8, fill: '#d8d0dc', 'stroke-width': 2.2 }));
-  const a = .19 * Ht * .52;
-  ln(gChurch, 'path', { d: `M${cx - a},${base} Q${cx},${base - .2 * Ht} ${cx + a},${base}`, fill: 'none', 'stroke-width': 2.4 });
-  ln(gChurch, 'line', { x1: cx, y1: Y(1), x2: cx, y2: Y(1) - 26, 'stroke-width': 2 });
+  const cx = 684, base = 468, Ht = 430, IRON = '#4b4254', g = gChurch;
+  const prof = [[0,.2],[.04,.172],[.09,.14],[.15,.112],[.22,.09],[.30,.074],[.38,.06],[.5,.045],[.62,.034],[.75,.025],[.88,.016],[.96,.008],[1,.003]];
+  const hwAt = f => { for (let i = 0; i < prof.length - 1; i++) { const [f0, h0] = prof[i], [f1, h1] = prof[i + 1]; if (f <= f1) return (h0 + (h1 - h0) * (f - f0) / (f1 - f0)) * Ht; } return prof[prof.length - 1][1] * Ht; };
+  const Y = f => base - f * Ht, line = (x1, y1, x2, y2, w, o = 1) => nf(g, 'line', { x1: x1.toFixed(1), y1: y1.toFixed(1), x2: x2.toFixed(1), y2: y2.toFixed(1), stroke: IRON, 'stroke-width': w, 'stroke-linecap': 'round', opacity: o });
+  const outline = side => { const pts = []; for (let i = 0; i <= 40; i++) { const f = i / 40; pts.push(`${(cx + side * hwAt(f)).toFixed(1)},${Y(f).toFixed(1)}`); } return pts.join(' '); };
+  /* silhouette, softly filled so the lattice reads against the sky */
+  nf(g, 'polygon', { points: outline(-1) + ' ' + outline(1).split(' ').reverse().join(' '), fill: '#cdbfc9', opacity: .5 });
+  /* the great arch between the legs */
+  const archTop = .13, ah = hwAt(archTop) - 6;
+  nf(g, 'path', { d: `M${cx - hwAt(0) + 12},${Y(0)} L${cx - hwAt(0) + 12},${Y(0) - 4} Q${cx - ah},${Y(archTop) + 6} ${cx},${Y(archTop) - 3} Q${cx + ah},${Y(archTop) + 6} ${cx + hwAt(0) - 12},${Y(0) - 4} L${cx + hwAt(0) - 12},${Y(0)} Z`, fill: '#efe3d0', opacity: .85 });
+  nf(g, 'path', { d: `M${cx - hwAt(0) + 12},${Y(0) - 4} Q${cx - ah},${Y(archTop) + 6} ${cx},${Y(archTop) - 3} Q${cx + ah},${Y(archTop) + 6} ${cx + hwAt(0) - 12},${Y(0) - 4}`, fill: 'none', stroke: IRON, 'stroke-width': 2.6 });
+  /* lattice: crossed braces, finer towards the top */
+  const sections = [[0, .3, 4], [.3, .62, 5], [.62, .88, 4], [.88, 1, 2]];
+  sections.forEach(([f0, f1, n]) => {
+    for (let i = 0; i < n; i++) {
+      const a = f0 + (f1 - f0) * i / n, b = f0 + (f1 - f0) * (i + 1) / n, ha = hwAt(a), hb = hwAt(b);
+      if (a < archTop - .001 && b <= archTop + .02) { line(cx - ha, Y(a), cx - ha * .55, Y(b), 1.1); line(cx + ha, Y(a), cx + ha * .55, Y(b), 1.1); line(cx - ha * .55, Y(a), cx - ha, Y(b), 1); line(cx + ha * .55, Y(a), cx + ha, Y(b), 1); continue; }
+      line(cx - ha, Y(a), cx + hb, Y(b), 1.05, .9); line(cx + ha, Y(a), cx - hb, Y(b), 1.05, .9);
+      line(cx - hb, Y(b), cx + hb, Y(b), 1.2, .9);
+    }
+  });
+  /* legs and tapering shaft */
+  ['-1', '1'].forEach(sg => { nf(g, 'polyline', { points: outline(+sg), fill: 'none', stroke: IRON, 'stroke-width': 2.8, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
+    nf(g, 'polyline', { points: (() => { const p = []; for (let i = 0; i <= 14; i++) { const f = i / 14 * .3; p.push(`${(cx + sg * hwAt(f) * .62).toFixed(1)},${Y(f).toFixed(1)}`); } return p.join(' '); })(), fill: 'none', stroke: IRON, 'stroke-width': 1.6, opacity: .8 }); });
+  /* platforms with railings, then the cabin and antenna */
+  [[.3, 10], [.62, 8]].forEach(([f, ex]) => {
+    const w = hwAt(f) + ex;
+    nf(g, 'rect', { x: (cx - w).toFixed(1), y: (Y(f) - 4).toFixed(1), width: (w * 2).toFixed(1), height: 7, fill: '#d9ccd2', stroke: IRON, 'stroke-width': 2 });
+    nf(g, 'path', { d: `M${cx - w},${Y(f) - 4} v-6 M${cx + w},${Y(f) - 4} v-6 M${cx - w},${Y(f) - 9} H${cx + w}`, stroke: IRON, 'stroke-width': 1.2, fill: 'none' });
+  });
+  nf(g, 'rect', { x: cx - 7, y: Y(.9), width: 14, height: 11, rx: 2, fill: '#d9ccd2', stroke: IRON, 'stroke-width': 2 });
+  nf(g, 'path', { d: `M${cx - 5},${Y(.9)} Q${cx},${Y(.93) - 3} ${cx + 5},${Y(.9)}`, fill: 'none', stroke: IRON, 'stroke-width': 1.6 });
+  line(cx, Y(.97), cx, Y(1) - 30, 2);
+  nf(g, 'circle', { cx, cy: Y(1) - 31, r: 2.4, fill: '#ffe9a8', stroke: IRON, 'stroke-width': 1 });
 })();
 
 /* ============================ bare trees =========================== */
