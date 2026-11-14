@@ -1,0 +1,1232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Joyeux Noël</title>
+<style>
+:root{--ink:#26222e;--cream:#fbf3df;--rose:#c8553d}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#2a2733;overflow:hidden;font-family:Georgia,"Times New Roman",serif;color:var(--ink);-webkit-tap-highlight-color:transparent}
+#stage{position:fixed;inset:0;overflow:hidden;background:#e9e3d3}
+#stage>svg,#stage>canvas{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:cover}
+
+#vignette{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 55%,rgba(0,0,0,0) 58%,rgba(46,28,52,.34) 100%)}
+#grain{mix-blend-mode:multiply;opacity:.55;pointer-events:none}
+
+/* ---------- animation ---------- */
+.flick{animation:flick 4s infinite ease-in-out}
+@keyframes flick{0%,100%{opacity:.04}8%{opacity:.34}14%{opacity:.1}30%{opacity:.52}45%{opacity:.16}60%{opacity:.42}78%{opacity:.08}90%{opacity:.3}}
+.breathe{animation:breathe 5s infinite ease-in-out}
+@keyframes breathe{0%,100%{opacity:.55}50%{opacity:1}}
+.pulse{transform-box:fill-box;transform-origin:center;animation:pulse 3.4s infinite ease-in-out}
+@keyframes pulse{0%,100%{opacity:.7;transform:scale(1)}50%{opacity:1;transform:scale(1.1)}}
+.tw{animation:tw 2.4s infinite ease-in-out}
+@keyframes tw{0%,100%{opacity:.2}50%{opacity:1}}
+.puff{transform-box:fill-box;transform-origin:center;opacity:0;animation:puff 6s infinite ease-out}
+@keyframes puff{0%{transform:translate(0,0) scale(.4);opacity:0}15%{opacity:.8}100%{transform:translate(var(--dx,20px),-62px) scale(1.25);opacity:0}}
+.note{transform-box:fill-box;transform-origin:center;opacity:0;animation:note 5.5s infinite ease-out;font-size:22px;fill:#26222e}
+@keyframes note{0%{transform:translate(0,0) rotate(-8deg);opacity:0}15%{opacity:.9}100%{transform:translate(var(--dx,18px),-80px) rotate(14deg);opacity:0}}
+.sway{transform-box:fill-box;transform-origin:50% 100%;animation:sway 4.5s infinite ease-in-out alternate}
+@keyframes sway{from{transform:rotate(-2.2deg) translateX(-1px)}to{transform:rotate(2.2deg) translateX(2px)}}
+
+</style>
+</head>
+<body>
+<div id="stage" aria-label="A flat, poster-style animated illustration of a Christmas market on a Swiss lake at dusk">
+  <svg id="bg"  viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice"></svg>
+  <svg id="fx"  viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice"></svg>
+  <svg id="pe"  viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice"></svg>
+  <canvas id="sn" width="1600" height="900"></canvas>
+  <svg id="grain" viewBox="0 0 100 100" preserveAspectRatio="none">
+    <filter id="paper" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="3" seed="2"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 .3  0 0 0 0 .22  0 0 0 0 .14  0 0 0 .5 -.13"/>
+    </filter>
+    <rect width="100" height="100" filter="url(#paper)"/>
+  </svg>
+  <div id="vignette"></div>
+</div>
+<script>
+(() => {
+'use strict';
+/* ============================ helpers ============================== */
+const NS = 'http://www.w3.org/2000/svg';
+const $ = s => document.querySelector(s);
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const R = rng(1224);
+const rnd = (a, b) => a + R() * (b - a);
+const pick = a => a[Math.floor(R() * a.length)];
+const INK = '#233047';
+const FLAT = true;
+const W = 1600, H = 900, G = 612;               // canvas, street-level baseline
+const LN = { stroke: INK, 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
+let ROUGH = 0;                                                    // set on while the people are drawn
+const _rp = document.createElementNS(NS, 'path');
+function roughD(d, amp) {                                         // re-draw a path as a wobbly, hand-held line
+  _rp.setAttribute('d', d);
+  let L; try { L = _rp.getTotalLength(); } catch (e) { return d; }
+  if (!(L > 5)) return d;
+  const closed = /[zZ]\s*$/.test(d.trim()), n = Math.max(5, Math.round(L / 6.5)), a = Math.min(amp * .8, L * .05);
+  const k1 = rnd(.22, .45), k2 = rnd(.7, 1.3), p1 = rnd(0, 6.3), p2 = rnd(0, 6.3), pts = [];
+  for (let i = 0; i <= n; i++) {
+    const l = L * i / n, p = _rp.getPointAtLength(l), a0 = _rp.getPointAtLength(Math.max(0, l - 1.2)), a1 = _rp.getPointAtLength(Math.min(L, l + 1.2));
+    let tx = a1.x - a0.x, ty = a1.y - a0.y; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+    const o = a * (Math.sin(l * k1 + p1) * .65 + Math.sin(l * k2 + p2) * .35);
+    pts.push([p.x - ty * o, p.y + tx * o]);
+  }
+  if (closed) pts.pop();
+  const N = pts.length, g = i => closed ? pts[(i + N) % N] : pts[Math.max(0, Math.min(N - 1, i))], f = v => v.toFixed(1);
+  let out = 'M' + f(pts[0][0]) + ',' + f(pts[0][1]);
+  const segs = closed ? N : N - 1;
+  for (let i = 0; i < segs; i++) {
+    const p0 = g(i - 1), p1 = g(i), p2 = g(i + 1), p3 = g(i + 2);
+    out += ' C' + f(p1[0] + (p2[0] - p0[0]) / 6) + ',' + f(p1[1] + (p2[1] - p0[1]) / 6) + ' ' + f(p2[0] - (p3[0] - p1[0]) / 6) + ',' + f(p2[1] - (p3[1] - p1[1]) / 6) + ' ' + f(p2[0]) + ',' + f(p2[1]);
+  }
+  return out + (closed ? ' Z' : '');
+}
+function shapeToD(tag, at) {
+  const f = k => parseFloat(at[k]);
+  switch (tag) {
+    case 'path': return [at.d, []];
+    case 'circle': { const cx = f('cx'), cy = f('cy'), r = f('r'); return [`M${cx - r},${cy} a${r},${r} 0 1,0 ${2 * r},0 a${r},${r} 0 1,0 ${-2 * r},0 Z`, ['cx', 'cy', 'r']]; }
+    case 'ellipse': { const cx = f('cx'), cy = f('cy'), rx = f('rx'), ry = f('ry'); return [`M${cx - rx},${cy} a${rx},${ry} 0 1,0 ${2 * rx},0 a${rx},${ry} 0 1,0 ${-2 * rx},0 Z`, ['cx', 'cy', 'rx', 'ry']]; }
+    case 'rect': {
+      const x = f('x'), y = f('y'), w = f('width'), h = f('height'), r = Math.min(parseFloat(at.rx) || 0, w / 2, h / 2);
+      const d = r > .5 ? `M${x + r},${y} h${w - 2 * r} a${r},${r} 0 0 1 ${r},${r} v${h - 2 * r} a${r},${r} 0 0 1 ${-r},${r} h${-(w - 2 * r)} a${r},${r} 0 0 1 ${-r},${-r} v${-(h - 2 * r)} a${r},${r} 0 0 1 ${r},${-r} Z` : `M${x},${y} h${w} v${h} h${-w} Z`;
+      return [d, ['x', 'y', 'width', 'height', 'rx', 'ry']];
+    }
+    case 'line': return [`M${f('x1')},${f('y1')} L${f('x2')},${f('y2')}`, ['x1', 'y1', 'x2', 'y2']];
+    case 'polygon': return ['M' + at.points.trim().replace(/\s+/g, ' L') + ' Z', ['points']];
+    case 'polyline': return ['M' + at.points.trim().replace(/\s+/g, ' L'), ['points']];
+  }
+  return null;
+}
+function lnRough(p, tag, at, a) {
+  const conv = shapeToD(tag, at);
+  if (!conv) return el(tag, at, p);
+  const [d0, drop] = conv; drop.forEach(k => delete at[k]);
+  const amp = (at['stroke-width'] > 2 ? .95 : .7) * .5, d1 = roughD(d0, amp);
+  if (FLAT && at.fill && at.fill !== 'none') {
+    if (/^#[0-9a-f]{6}$/i.test(at.fill)) el('path', { d: d1, fill: shade(at.fill, -.3), stroke: 'none', transform: (at.transform ? at.transform + ' ' : '') + 'translate(2 1.6)' }, p);
+    return el('path', Object.assign({}, at, { d: d1, stroke: 'none' }), p);
+  }
+  if (at.fill && at.fill !== 'none' && at.stroke === INK) {       // hand-coloured: the wash sits a hair off the outline
+    const w = { d: d1, fill: at.fill, stroke: 'none' };
+    w.transform = (a.transform ? a.transform + ' ' : '') + `translate(${rnd(.8, 1.7).toFixed(2)} ${rnd(-1.5, -.5).toFixed(2)})`;
+    el('path', w, p);
+    at.fill = 'none';
+  }
+  const e = el('path', Object.assign({}, at, { d: d1 }), p);
+  if (at.stroke === INK && at['stroke-width'] > 2.2) {
+    el('path', Object.assign({}, at, { d: roughD(d0, amp * 1.15), fill: 'none', 'stroke-width': +(at['stroke-width'] * .5).toFixed(2), 'stroke-opacity': .55 }), p);
+  }
+  return e;
+}
+const ln = (p, tag, a) => {                                       // hand-inked shape: pressure + loose second pass
+  const at = Object.assign({}, LN, a);
+  at['stroke-width'] = +(at['stroke-width'] * rnd(.85, 1.25)).toFixed(2);
+  if (FLAT && !ROUGH && at.fill && at.fill !== 'none') { at.stroke = 'none'; return el(tag, at, p); }
+  if (ROUGH) return lnRough(p, tag, at, a);
+  const e = el(tag, at, p);
+  if (at.stroke === INK && at['stroke-width'] > 1.1) {
+    const o = Object.assign({}, at, { fill: 'none', 'stroke-width': +(at['stroke-width'] * .5).toFixed(2), 'stroke-opacity': .62 });
+    o.transform = (a.transform ? a.transform + ' ' : '') + `translate(${rnd(-1.8, 1.8).toFixed(2)} ${rnd(-1.8, 1.8).toFixed(2)})`;
+    el(tag, o, p);
+  }
+  return e;
+};
+const nf = (p, tag, a) => el(tag, a, p);                          // plain shape
+
+const shade = (hex, k) => {                                      // darken (k<0) or lighten (k>0) a #rrggbb colour
+  const n = parseInt(hex.slice(1), 16);
+  return '#' + [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(c => Math.max(0, Math.min(255, Math.round(c * (1 + k)))).toString(16).padStart(2, '0')).join('');
+};
+
+/* ============================ layers =============================== */
+const bg = $('#bg'), fx = $('#fx'), pe = $('#pe'), snc = $('#sn'), snx = snc.getContext('2d');
+
+bg.innerHTML = `<defs>
+  <linearGradient id="skyG" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#2a4688"/><stop offset=".2" stop-color="#4b62a6"/><stop offset=".36" stop-color="#8f71a8"/><stop offset=".455" stop-color="#e68c7c"/><stop offset=".52" stop-color="#f6b46c"/><stop offset="1" stop-color="#f6b46c"/>
+  </linearGradient>
+  <linearGradient id="lakeG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f1a877"/><stop offset=".3" stop-color="#b8709a"/><stop offset="1" stop-color="#34437f"/></linearGradient>
+  <radialGradient id="sunG"><stop offset="0" stop-color="#ffc47a" stop-opacity=".85"/><stop offset="1" stop-color="#ffb06a" stop-opacity="0"/></radialGradient>
+  <filter id="soft" x="-30%" y="-60%" width="160%" height="220%"><feGaussianBlur stdDeviation="22"/></filter>
+  <filter id="paint" x="-4%" y="-4%" width="108%" height="108%" color-interpolation-filters="sRGB">
+    <feTurbulence type="fractalNoise" baseFrequency="0.02" numOctaves="2" seed="7" result="warp"/>
+    <feDisplacementMap in="SourceGraphic" in2="warp" scale="1.6" xChannelSelector="R" yChannelSelector="G" result="d1"/>
+    <feComponentTransfer in="d1" result="post">
+      <feFuncR type="discrete" tableValues="0 .14 .28 .43 .57 .71 .86 1"/>
+      <feFuncG type="discrete" tableValues="0 .14 .28 .43 .57 .71 .86 1"/>
+      <feFuncB type="discrete" tableValues="0 .14 .28 .43 .57 .71 .86 1"/>
+    </feComponentTransfer>
+    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="13" result="grain"/>
+    <feColorMatrix in="grain" type="matrix" values="0 0 0 0 .12  0 0 0 0 .14  0 0 0 0 .25  0 0 0 -1.1 .62" result="speck"/>
+    <feComposite in="speck" in2="post" operator="in" result="speckIn"/>
+    <feMerge><feMergeNode in="post"/><feMergeNode in="speckIn"/></feMerge>
+  </filter>
+</defs>`;
+fx.innerHTML = `<defs>
+  <radialGradient id="glowG"><stop offset="0" stop-color="#ffe9a8" stop-opacity=".9"/><stop offset="1" stop-color="#ffd27a" stop-opacity="0"/></radialGradient>
+  <linearGradient id="floorG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd37a" stop-opacity=".55"/><stop offset="1" stop-color="#ffd37a" stop-opacity="0"/></linearGradient>
+</defs>`;
+
+const gSky   = el('g', {}, bg);
+const gFar   = el('g', { filter: 'url(#paint)' }, bg);
+const gChurch= el('g', { filter: 'url(#paint)' }, bg);
+const gBack  = el('g', { filter: 'url(#paint)' }, bg);
+const gGround= el('g', { filter: 'url(#paint)' }, bg);
+const gBld   = el('g', {}, bg);
+const gLights= el('g', {}, bg);
+const TX0 = 800, TY0 = 700, TS = .56, tx = x => TX0 + (x - 800) * TS, ty = y => TY0 + (y - 700) * TS;
+const gTree  = el('g', { filter: 'url(#paint)', transform: `translate(${TX0} ${TY0}) scale(${TS}) translate(-800 -700)` }, bg);
+const gLamps = el('g', { filter: 'url(#paint)' }, bg);
+const gFront = el('g', { filter: 'url(#paint)' }, bg);
+
+/* ===================== dusk over the lake ========================== */
+const HZ = 470;
+nf(gSky, 'rect', { width: W, height: H, fill: 'url(#skyG)' });
+nf(gSky, 'circle', { cx: 1380, cy: HZ + 10, r: 460, fill: 'url(#sunG)' });
+for (let i = 0; i < 26; i++) nf(gSky, 'circle', { cx: rnd(20, 1580), cy: rnd(10, 200), r: rnd(.8, 1.7), fill: '#fff6dc', opacity: rnd(.4, .9) });
+[[300, 96, 150, 12], [1130, 176, 190, 14], [640, 214, 120, 9], [1480, 90, 130, 10]].forEach(([x, y, rx, ry]) => {
+  nf(gSky, 'ellipse', { cx: x, cy: y, rx, ry, fill: '#5d558f', opacity: .7 });
+  nf(gSky, 'ellipse', { cx: x + rx * .1, cy: y + ry * .55, rx: rx * .8, ry: ry * .35, fill: '#f0937a', opacity: .75 });
+});
+
+const farPts = [[-40, HZ], [40, 410], [120, 432], [210, 336], [290, 372], [380, 300], [450, 346], [540, 262], [620, 330], [700, 296], [790, 356], [890, 312], [985, 252], [1070, 308], [1160, 282], [1260, 340], [1350, 306], [1450, 360], [1560, 326], [1640, 384], [1640, HZ]];
+const nearPts = [[-40, HZ], [90, 440], [210, 408], [340, 432], [470, 398], [600, 424], [760, 442], [900, 418], [1050, 398], [1200, 428], [1350, 408], [1500, 436], [1640, 418], [1640, HZ]];
+function ridge(pts, fill, facet, caps) {
+  nf(gFar, 'polygon', { points: pts.map(p => p.join(',')).join(' '), fill });
+  pts.forEach((p, i) => {
+    if (i < 1 || i > pts.length - 4) return;
+    if (p[1] < pts[i - 1][1] && p[1] < pts[i + 1][1]) {
+      const n = pts[i + 1];
+      nf(gFar, 'polygon', { points: `${p[0]},${p[1]} ${n[0]},${n[1]} ${n[0] - 26},${HZ} ${p[0] + 10},${HZ}`, fill: facet, opacity: .38 });
+      if (caps) nf(gFar, 'polygon', { points: `${p[0]},${p[1]} ${p[0] - 20},${p[1] + 28} ${p[0] - 5},${p[1] + 20} ${p[0] + 6},${p[1] + 34} ${p[0] + 18},${p[1] + 26}`, fill: '#f7d7de', opacity: .82 });
+    }
+  });
+}
+ridge(farPts, '#6a6aa6', '#3c3f7e', true);
+ridge(nearPts, '#33437c', '#1f2b5a', false);
+/* the far shore, a few lights */
+for (let x = 20; x < W; x += rnd(14, 34)) nf(gFar, 'rect', { x, y: HZ - rnd(1, 5), width: rnd(2, 4), height: 2.4, fill: '#ffd27a', opacity: .9 });
+
+/* the lake with its reflections */
+nf(gChurch, 'rect', { x: 0, y: HZ, width: W, height: 150, fill: 'url(#lakeG)' });
+nf(gChurch, 'polygon', { points: farPts.map(p => `${p[0]},${HZ + (HZ - p[1]) * .4}`).join(' '), fill: '#4a4f8c', opacity: .4 });
+for (let i = 0; i < 18; i++) nf(gChurch, 'rect', { x: rnd(500, 1650), y: HZ + 6 + i * 6.5, width: rnd(50, 230), height: 2.4, fill: i % 3 ? '#ffd19a' : '#ffe9c0', opacity: rnd(.25, .5) });
+for (let i = 0; i < 10; i++) nf(gChurch, 'rect', { x: rnd(0, 1500), y: HZ + 50 + i * 9, width: rnd(60, 200), height: 2, fill: '#8f87c4', opacity: .35 });
+
+/* lakeside rail */
+for (let x = -10; x < W + 20; x += 30) nf(gBack, 'rect', { x, y: 560, width: 4, height: 26, fill: '#252a4a' });
+nf(gBack, 'rect', { x: -20, y: 562, width: W + 40, height: 4, fill: '#252a4a' });
+nf(gBack, 'rect', { x: -20, y: 575, width: W + 40, height: 3, fill: '#252a4a' });
+
+/* the cable Santa rides: a long wire across the sky */
+const WIRE = { x0: -40, y0: 205, x1: 1640, y1: 118 };
+nf(gSky, 'line', { x1: WIRE.x0, y1: WIRE.y0, x2: WIRE.x1, y2: WIRE.y1, stroke: '#2a2a50', 'stroke-width': 1.6, opacity: .85 });
+
+/* ============================== ground ============================= */
+nf(gGround, 'path', { d: `M0,${G-6} Q200,${G-20} 400,${G-6} T800,${G-10} T1200,${G-4} T1600,${G-14} L1600,${H} L0,${H} Z`, fill: '#f8f5ee' });
+for (let i = 0; i < 16; i++) {
+  const y = rnd(G + 20, H - 20), x = rnd(-100, W - 150), l = rnd(180, 420);
+  nf(gGround, 'path', { d: `M${x},${y} q${l/3},${rnd(-12,12)} ${l*.6},${rnd(-6,10)} t${l*.4},${rnd(-6,6)}`, stroke: pick(['#d3deeb','#dcd7e6','#e8dcd0']), 'stroke-width': rnd(5, 14), fill: 'none', 'stroke-linecap': 'round', opacity: .7 });
+}
+nf(gGround, 'rect', { x: 0, y: G - 6, width: W, height: 34, fill: '#d6e0ec', opacity: .55 });   // shade at building bases
+
+/* ============================== cobbles ============================ */
+for (let p = 0; p < 14; p++) {
+  const cx = rnd(60, W - 60), cy = rnd(G + 50, H - 60), pr = rnd(60, 130);
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 12; c++) {
+    const sx = cx - pr + c * (pr * 2 / 11) + (r % 2) * 9 + rnd(-2, 2), sy = cy - pr * .4 + r * 12 + rnd(-2, 2);
+    if (((sx - cx) / pr) ** 2 + ((sy - cy) / (pr * .45)) ** 2 > 1) continue;
+    nf(gGround, 'ellipse', { cx: sx, cy: sy, rx: rnd(6, 9), ry: rnd(3.4, 4.6), fill: 'none', stroke: INK, 'stroke-width': 1.1, opacity: .2 });
+  }
+}
+
+/* ============================ market stalls ======================== */
+const wins = [], smokes = [], bulbs = [], shops = [];
+function hatch(p, x, y, w, h, gap, op) {
+  let d = '';
+  for (let yy = y + w * .5; yy <= y + h + w * .5; yy += gap) d += `M${x.toFixed(1)},${(yy + rnd(-1, 1)).toFixed(1)} l${w.toFixed(1)},${(-w * .5 + rnd(-2, 2)).toFixed(1)} `;
+  nf(p, 'path', { d, stroke: INK, 'stroke-width': 1, fill: 'none', opacity: op, 'stroke-linecap': 'round' });
+}
+function fir(x, y, s, parent = gFront) {                            // snow-laden spruce, flat shapes
+  const g = el('g', { transform: `translate(${x} ${y}) scale(${s})` }, parent);
+  nf(g, 'rect', { x: -6, y: -22, width: 12, height: 26, fill: '#5b3b2a' });
+  [[-100, 92, 0], [-150, 76, 38], [-190, 58, 66]].forEach(([top, hw, yb], i) => { });
+  const tiers = [[0, 78, 62], [-42, 62, 58], [-82, 48, 54], [-118, 34, 50], [-150, 20, 44]];
+  tiers.forEach(([by, hw, th], i) => {
+    nf(g, 'polygon', { points: `0,${by - th} ${-hw},${by} ${hw},${by}`, fill: i % 2 ? '#2f6050' : '#3a6f5c' });
+    nf(g, 'polygon', { points: `0,${by - th} ${-hw * .62},${by - th * .38} ${-hw * .2},${by - th * .5} 0,${by - th * .3} ${hw * .3},${by - th * .52} ${hw * .62},${by - th * .38}`, fill: '#f4f8fa' });
+  });
+  nf(g, 'polygon', { points: `0,-198 -4,-186 4,-186`, fill: '#f4f8fa' });
+  return g;
+}
+
+
+function stall(o, bi) {
+  const { x, w } = o, WD = '#9a6a43', WD2 = '#6f4829', WL = '#b98655';
+  const g = el('g', { filter: 'url(#paint)' }, gBld), fl = el('g', {}, g);
+  nf(fl, 'rect', { x: x + 4, y: G - 128, width: w - 8, height: 128, fill: '#3e271f' });
+  const ox = x + 16, oy = G - 104, ow = w - 32, oh = 66;
+  nf(fl, 'rect', { x: ox, y: oy, width: ow, height: oh, fill: '#ffb040' });
+  nf(fl, 'rect', { x: ox, y: oy, width: ow, height: 14, fill: '#ffd070', opacity: .7 });
+  [oy + 26, oy + 46].forEach(yy => {
+    nf(fl, 'rect', { x: ox, y: yy, width: ow, height: 3, fill: '#7a4d2e' });
+    for (let ix = ox + 4; ix < ox + ow - 8; ix += rnd(8, 13)) nf(fl, pick(['rect', 'circle']), { x: ix, y: yy - 10, width: 7, height: 10, cx: ix + 3, cy: yy - 5, r: 4, fill: pick(['#c63a2f', '#2f6a4a', '#6a4a6a', '#fbf3df', '#e0a52f', '#2b3a5a', '#e86a4a']) });
+  });
+  [x + 6, x + w - 16].forEach(px => nf(fl, 'rect', { x: px, y: G - 128, width: 10, height: 128, fill: WD }));
+  nf(fl, 'rect', { x: x + 2, y: G - 40, width: w - 4, height: 40, fill: WD2 });
+  for (let px = x + 12; px < x + w - 8; px += 18) nf(fl, 'rect', { x: px, y: G - 36, width: 2, height: 32, fill: '#533620', opacity: .6 });
+  nf(fl, 'rect', { x: x - 2, y: G - 44, width: w + 4, height: 7, fill: WL });
+  nf(fl, 'path', { d: `M${x - 4},${G - 44} q${w / 4},-10 ${w / 2},-6 t${w / 2 + 4},6 l-4,5 h-${w - 4} z`, fill: '#fafcfd' });
+  /* header board with the name */
+  const name = o.n, fs = Math.min(12, (w - 40) / (name.length * .85));
+  nf(fl, 'rect', { x: x + 6, y: G - 128, width: w - 12, height: 24, fill: '#4f3224' });
+  { const t = el('text', { x: x + w / 2, y: G - 108, 'text-anchor': 'middle', 'font-size': fs, 'font-family': 'Georgia,serif', 'font-weight': 700, 'letter-spacing': 1.4, fill: '#ffe9b0' }, fl); t.textContent = name; }
+  /* the big sloping roof */
+  nf(fl, 'polygon', { points: `${x - 14},${G - 126} ${x + w + 14},${G - 126} ${x + w - 8},${G - 184} ${x + 8},${G - 184}`, fill: o.roof });
+  for (let yy = G - 178; yy < G - 130; yy += 9) nf(fl, 'rect', { x: x + 8 - (yy - (G - 184)) * .12 - 2, y: yy, width: w - 16 + (yy - (G - 184)) * .24 + 4, height: 2.4, fill: shade(o.roof, -.28), opacity: .7 });
+  nf(fl, 'polygon', { points: `${x + 4},${G - 182} ${x + w - 4},${G - 182} ${x + w - 10},${G - 192} ${x + 10},${G - 192}`, fill: '#fafcfd' });
+  nf(fl, 'rect', { x: x - 14, y: G - 130, width: w + 28, height: 6, fill: shade(o.roof, -.4) });
+  for (let sx = x - 10; sx < x + w + 8; sx += rnd(12, 20)) nf(fl, 'polygon', { points: `${sx},${G - 124} ${sx + 6},${G - 124} ${sx + 3},${G - 124 + rnd(6, 14)}`, fill: '#e6f1f7' });
+  /* evergreen garland along the eave, with lights */
+  const y = G - 128, segs = Math.max(4, Math.round(w / 26)), sp = (w + 28) / segs;
+  let d = `M${x - 14},${y}`;
+  for (let i = 0; i < segs; i++) {
+    const x0 = x - 14 + i * sp; d += ` Q${x0 + sp / 2},${y + 11} ${x0 + sp},${y}`;
+    [[.5, 7], [.22, 5], [.78, 5]].forEach(([f, dy]) => bulbs.push({ x: x0 + sp * f, y: y + dy, c: pick(['#ffd35a', '#ff7a6a', '#fff3c0', '#8fd0ff']) }));
+  }
+  nf(fl, 'path', { d, stroke: '#2f6a4a', 'stroke-width': 6, fill: 'none', 'stroke-linecap': 'round' });
+  nf(fl, 'path', { d, stroke: '#7bbd88', 'stroke-width': 2, 'stroke-dasharray': '3 6', fill: 'none' });
+  shops.push({ x: ox, y: oy, w: ow, h: oh, doorX: x + w / 2, name });
+  wins.push({ shop: true, x: ox + 2, y: oy + 2, w: ow - 4, h: oh - 4 });
+}
+[
+  { x: -25,  w: 170, n: 'VIN CHAUD', roof: '#6b2438' },
+  { x: 150,  w: 170, n: 'FONDUE',    roof: '#7a2f3c' },
+  { x: 325,  w: 170, n: 'CHOCOLAT',  roof: '#5d2a4a' },
+  { x: 1105, w: 170, n: 'RACLETTE',  roof: '#7a2f3c' },
+  { x: 1280, w: 170, n: 'BISCUITS',  roof: '#6b2438' },
+  { x: 1455, w: 170, n: 'JOUETS',    roof: '#5d2a4a' },
+].forEach(stall);
+
+/* potted firs */
+function pot(parent, x, y, s = 1) {
+  const g = el('g', { transform: `translate(${x} ${y}) scale(${s})` }, parent);
+  nf(g, 'path', { d: 'M-9,0 L9,0 L7,-12 L-7,-12 Z', fill: '#a85a46' });
+  nf(g, 'polygon', { points: '0,-52 -15,-13 15,-13', fill: '#2f6b4a' });
+  nf(g, 'polygon', { points: '0,-52 -6,-38 6,-38', fill: '#fff' });
+  nf(g, 'circle', { cx: -4, cy: -30, r: 2.6, fill: '#e8b84a' }); nf(g, 'circle', { cx: 5, cy: -22, r: 2.6, fill: '#c0392b' });
+}
+[[150, G + 8], [322, G + 8], [500, G + 8], [1100, G + 8], [1276, G + 8], [1452, G + 8]].forEach(([x, y]) => pot(gLights, x, y, .9));
+
+/* ============ string lights ======================================== */
+(function () {
+  const P0 = [500, 330], P1 = [800, 420], P2 = [1100, 330];
+  nf(gLights, 'path', { d: `M${P0} Q${P1} ${P2}`, stroke: INK, 'stroke-width': 1.6, fill: 'none' });
+  for (let t = .06; t < .96; t += .07) {
+    const x = (1 - t) ** 2 * P0[0] + 2 * (1 - t) * t * P1[0] + t * t * P2[0];
+    const y = (1 - t) ** 2 * P0[1] + 2 * (1 - t) * t * P1[1] + t * t * P2[1];
+    nf(gLights, 'polygon', { points: `${x - 4},${y + 1} ${x + 4},${y + 1} ${x},${y + 10}`, fill: pick(['#d6342f', '#fff3c0', '#d6342f', '#2f6a9a']) });
+    bulbs.push({ x, y: y + 12, c: pick(['#ffd35a', '#ff7a6a', '#fff3c0', '#8fd0ff']) });
+  }
+})();
+/* ============================== big tree =========================== */
+const treeBulbs = [];
+(function () {
+  const cx = 800, topY = 180, botY = 702, tips = [];
+  const half = y => 12 + (y - topY) / (botY - topY) * 238;
+  const DK = ['#1c4231', '#22503a', '#295b42'], MD = ['#32694c', '#3c7656', '#478260'], LT = ['#62a077', '#7bb386', '#95c59c'];
+
+  /* dark inner mass, so no sky shows through the middle */
+  {
+    const Ls = [], Rs = [];
+    for (let y = topY + 8; y <= botY - 46; y += 16) { const h = half(y) * .72 + rnd(-5, 5); Ls.push(`${(cx - h).toFixed(1)},${y}`); Rs.push(`${(cx + h).toFixed(1)},${y}`); }
+    nf(gTree, 'polygon', { points: [`${cx},${topY - 6}`, ...Ls, ...Rs.reverse()].join(' '), fill: '#173a2b' });
+  }
+  /* trunk */
+  ln(gTree, 'path', { d: `M${cx-10},${botY-80} L${cx-12},${botY+6} L${cx+12},${botY+6} L${cx+10},${botY-80} Z`, fill: '#6b4a3a', 'stroke-width': 2.4 });
+  nf(gTree, 'path', { d: `M${cx-4},${botY-70} L${cx-5},${botY} M${cx+3},${botY-74} L${cx+4},${botY-4}`, stroke: INK, 'stroke-width': 1, opacity: .4, fill: 'none' });
+
+  /* one drooping, needled bough */
+  function bough(y0, side, L, t) {
+    const droop = 20 + t * 36 + rnd(-4, 8), lift = rnd(2, 9);
+    const P = [[cx, y0], [cx + side * L * .34, y0 - lift], [cx + side * L * .7, y0 + droop * .25], [cx + side * L, y0 + droop]];
+    const M = 12, pts = [];
+    for (let m = 0; m <= M; m++) {
+      const u = m / M, a = (1 - u) ** 3, b = 3 * (1 - u) ** 2 * u, c = 3 * (1 - u) * u * u, d = u ** 3;
+      pts.push([a * P[0][0] + b * P[1][0] + c * P[2][0] + d * P[3][0], a * P[0][1] + b * P[1][1] + c * P[2][1] + d * P[3][1], u]);
+    }
+    const topE = pts.map(([x, y, u]) => `${x.toFixed(1)},${(y - 5 * (1 - u * .5)).toFixed(1)}`);
+    const bot = pts.map(([x, y, u], m) => `${(x + side * (m % 2 ? 5 : 0)).toFixed(1)},${(y + (11 * (1 - u * .75) + 3) + (m % 2 ? 9 : 2) * (1 - u * .5)).toFixed(1)}`);
+    nf(gTree, 'polygon', { points: [...topE, ...bot.slice().reverse()].join(' '), fill: pick(DK) });
+    const nd = [[], [], []];
+    for (let m = 0; m < M * 3; m++) {
+      const u = m / (M * 3), seg = Math.min(M - 1, Math.floor(u * M)), f = u * M - seg;
+      const x = pts[seg][0] + (pts[seg + 1][0] - pts[seg][0]) * f, y = pts[seg][1] + (pts[seg + 1][1] - pts[seg][1]) * f;
+      for (let q = 0; q < 2; q++) {
+        const x1 = x + rnd(-3, 3), y1 = y + rnd(-4, 4) + 2, len = rnd(9, 18) * (1 - u * .35), ang = rnd(.15, .75);
+        const col = R() < .45 ? 0 : (R() < .6 ? 1 : 2);
+        nd[col].push(`M${x1.toFixed(1)},${y1.toFixed(1)} L${(x1 + side * Math.sin(ang) * len * .55).toFixed(1)},${(y1 + Math.cos(ang) * len).toFixed(1)}`);
+      }
+    }
+    [[DK, 0, 1.9], [MD, 1, 1.8], [LT, 2, 1.5]].forEach(([c, i, w]) => nf(gTree, 'path', { d: nd[i].join(' '), stroke: pick(c), 'stroke-width': w, 'stroke-linecap': 'round', fill: 'none' }));
+    nf(gTree, 'path', { d: 'M' + bot.join(' L'), stroke: INK, 'stroke-width': 1.3, opacity: .5, fill: 'none', 'stroke-linejoin': 'round' });
+    for (let m = 1; m < M - 1; m++) {                         // snow resting on the bough
+      if (R() < .62) {
+        const [x, y, u] = pts[m], [x2, y2, u2] = pts[m + 1];
+        nf(gTree, 'path', { d: `M${x.toFixed(1)},${(y - 5.5 * (1 - u * .5)).toFixed(1)} L${x2.toFixed(1)},${(y2 - 5.5 * (1 - u2 * .5)).toFixed(1)}`, stroke: '#fff', 'stroke-width': +(rnd(4, 8) * (1 - u * .4)).toFixed(1), 'stroke-linecap': 'round', opacity: .96, fill: 'none' });
+      }
+    }
+    for (let m = 6; m < M; m++) if (R() < .45) tips.push([pts[m][0], pts[m][1] + 11]);
+  }
+  const N = 15;
+  for (let i = 0; i < N; i++) {
+    const t = i / (N - 1), y0 = topY + 8 + t * (botY - topY - 74), reach = half(y0 + 40), per = 2 + Math.round(t * 3);
+    for (let k = 0; k < per; k++) for (const side of [-1, 1]) bough(y0 - k * 7 + rnd(-3, 3), side, reach * (1 - k * .13) * rnd(.86, 1.04), t);
+  }
+
+  /* spiral of fairy lights and a gold bead garland */
+  const y0s = topY + 36, y1s = botY - 62, turns = 6.3;
+  const wire = (phase, yoff, width, col, bulbsOn) => {
+    let d = '', pen = false, lastB = -99;
+    for (let y = y0s; y <= y1s; y += 3) {
+      const th = (y - y0s) / (y1s - y0s) * turns * Math.PI * 2 + phase, r = half(y) * .84;
+      const x = cx + r * Math.sin(th), z = Math.cos(th), yy = y + yoff + 7 * Math.sin(th * 2);
+      if (z > 0) {
+        d += (pen ? 'L' : 'M') + x.toFixed(1) + ',' + yy.toFixed(1) + ' '; pen = true;
+        if (bulbsOn && y - lastB > 8) { treeBulbs.push({ x, y: yy + 3, c: pick(['#ffd35a', '#ff7a6a', '#fff3c0', '#8fd0ff', '#ffa8d2']) }); lastB = y; }
+      } else pen = false;
+    }
+    nf(gTree, 'path', { d, stroke: col, 'stroke-width': width, fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+  };
+  wire(0, 0, 1.6, '#16301f', true);
+  wire(2.2, 20, 4.2, '#d9a93a', false);
+
+  /* ornaments */
+  const ORN = ['#b53a34', '#d9a93a', '#efe5cf', '#2b4a7a', '#7a3f6a', '#3f7a6a'];
+  tips.sort(() => R() - .5);
+  tips.slice(0, 48).forEach(([x, y]) => {
+    const kind = R(), c = pick(ORN);
+    if (kind < .62) {
+      const r = rnd(5.5, 8.5);
+      nf(gTree, 'path', { d: `M${x},${y-3} L${x},${y+3}`, stroke: '#8a7a4a', 'stroke-width': 1 });
+      ln(gTree, 'circle', { cx: x, cy: y + r + 3, r, fill: c, 'stroke-width': 1.6 });
+      nf(gTree, 'circle', { cx: x - r * .32, cy: y + r + 3 - r * .35, r: r * .26, fill: '#fff', opacity: .8 });
+      nf(gTree, 'rect', { x: x - 2, y: y + 1.4, width: 4, height: 2.8, fill: '#d9a93a' });
+    } else if (kind < .76) {
+      ln(gTree, 'path', { d: `M${x},${y+3} q-6,9 -5,16 q5,6 10,0 q1,-7 -5,-16 z`, fill: c, 'stroke-width': 1.5 });
+    } else if (kind < .88) {
+      nf(gTree, 'path', { d: `M${x},${y+2} L${x},${y+17} q0,6 -5.5,5`, stroke: '#fff', 'stroke-width': 3.6, fill: 'none', 'stroke-linecap': 'round' });
+      nf(gTree, 'path', { d: `M${x},${y+2} L${x},${y+17} q0,6 -5.5,5`, stroke: '#b53a34', 'stroke-width': 3.6, fill: 'none', 'stroke-dasharray': '2.6 3.4', 'stroke-linecap': 'butt' });
+    } else {
+      ln(gTree, 'path', { d: `M${x},${y+4} q-9,-6 -8,3 q4,4 8,-3 z M${x},${y+4} q9,-6 8,3 q-4,4 -8,-3 z`, fill: '#a8453a', 'stroke-width': 1.2 });
+      nf(gTree, 'circle', { cx: x, cy: y + 4.5, r: 1.8, fill: '#7a2f2a' });
+    }
+  });
+
+  /* star */
+  {
+    const sx = cx, sy = 163, pts2 = [];
+    for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 8.5 : 21; pts2.push(`${(sx + Math.cos(a) * r).toFixed(1)},${(sy + Math.sin(a) * r).toFixed(1)}`); }
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + .2; nf(gTree, 'line', { x1: sx + Math.cos(a) * 25, y1: sy + Math.sin(a) * 25, x2: sx + Math.cos(a) * 35, y2: sy + Math.sin(a) * 35, stroke: '#f1d27a', 'stroke-width': 1.6, opacity: .7, 'stroke-linecap': 'round' }); }
+    ln(gTree, 'polygon', { points: pts2.join(' '), fill: '#e8c24a', 'stroke-width': 2.4 });
+  }
+
+  /* snow mound, wooden tub, wrapped presents */
+  ln(gTree, 'path', { d: 'M632,716 Q800,684 968,716 Q800,748 632,716 Z', fill: '#fff', 'stroke-width': 2.4 });
+  nf(gTree, 'path', { d: 'M660,722 q40,10 90,6 M850,728 q50,4 96,-8', stroke: '#c9d6e6', 'stroke-width': 4, fill: 'none', 'stroke-linecap': 'round' });
+  ln(gTree, 'path', { d: 'M748,694 L752,724 Q800,732 848,724 L852,694 Q800,702 748,694 Z', fill: '#8f5a32', 'stroke-width': 2.4 });
+  nf(gTree, 'path', { d: 'M768,698 L770,728 M790,700 L791,730 M810,700 L809,730 M832,698 L830,728', stroke: INK, 'stroke-width': 1, opacity: .4, fill: 'none' });
+  ln(gTree, 'path', { d: 'M749.5,704 Q800,712 850.5,704', fill: 'none', 'stroke-width': 3, stroke: '#b9a27a' });
+  ln(gTree, 'path', { d: 'M752,718 Q800,727 848,718', fill: 'none', 'stroke-width': 3, stroke: '#b9a27a' });
+  ln(gTree, 'ellipse', { cx: 800, cy: 695, rx: 52, ry: 7, fill: '#fff', 'stroke-width': 1.8 });
+  const present = (x, y, w, h, c1, c2, tag) => {
+    nf(gTree, 'ellipse', { cx: x + w / 2, cy: y + 1, rx: w * .62, ry: 3.2, fill: '#b7c4d8', opacity: .6 });
+    ln(gTree, 'rect', { x, y: y - h, width: w, height: h, fill: c1, 'stroke-width': 2 });
+    nf(gTree, 'rect', { x: x + w / 2 - 2.6, y: y - h, width: 5.2, height: h, fill: c2 });
+    nf(gTree, 'rect', { x, y: y - h / 2 - 2.6, width: w, height: 5.2, fill: c2 });
+    ln(gTree, 'path', { d: `M${x+w/2},${y-h} q-11,-13 -14,-3 q5,5 14,3 z M${x+w/2},${y-h} q11,-13 14,-3 q-5,5 -14,3 z`, fill: c2, 'stroke-width': 1.4 });
+    nf(gTree, 'circle', { cx: x + w / 2, cy: y - h - .5, r: 2.2, fill: shade(c2, -.25) });
+    if (tag) { ln(gTree, 'rect', { x: x + w - 9, y: y - 12, width: 9, height: 6, fill: '#fbf3df', 'stroke-width': 1, transform: `rotate(-12 ${x+w-4} ${y-9})` }); }
+  };
+  present(690, 726, 32, 24, '#a8453a', '#e0b043', true); present(728, 731, 26, 31, '#2b4a7a', '#efe5cf', false);
+  present(846, 730, 36, 23, '#3d6a55', '#e0b043', false); present(888, 726, 28, 27, '#c98a86', '#efe5cf', true);
+  present(652, 719, 24, 19, '#e0b043', '#a8453a', false); present(924, 721, 22, 18, '#6a4a6a', '#efe5cf', false);
+})();
+
+/* ============================ lamps ================================ */
+const lampSpots = [];
+function lamp(x, y, s) {
+  const g = el('g', { transform: `translate(${x} ${y}) scale(${s})` }, gLamps), dk = '#2c3a36';
+  ln(g, 'path', { d: 'M-12,0 L12,0 L8,-14 L-8,-14 Z', fill: dk, 'stroke-width': 2 });
+  ln(g, 'path', { d: 'M-6,-14 L6,-14 L4,-40 L-4,-40 Z', fill: dk, 'stroke-width': 2 });
+  ln(g, 'rect', { x: -3, y: -150, width: 6, height: 112, fill: dk, 'stroke-width': 2 });
+  ln(g, 'circle', { cx: 0, cy: -100, r: 5, fill: dk, 'stroke-width': 1.8 });
+  ln(g, 'path', { d: 'M0,-142 q-22,-4 -26,18', fill: 'none', 'stroke-width': 2.6 });
+  ln(g, 'path', { d: 'M0,-142 q22,-4 26,18', fill: 'none', 'stroke-width': 2.6 });
+  [-26, 26].forEach(ax => { ln(g, 'circle', { cx: ax, cy: -108, r: 10, fill: '#ffe08a', 'stroke-width': 2.2 }); ln(g, 'rect', { x: ax - 4, y: -125, width: 8, height: 6, fill: dk, 'stroke-width': 1.4 }); });
+  ln(g, 'path', { d: 'M-9,-172 L9,-172 L7,-148 L-7,-148 Z', fill: '#ffe08a', 'stroke-width': 2.4 });
+  ln(g, 'polygon', { points: '-13,-172 13,-172 0,-188', fill: dk, 'stroke-width': 2 });
+  ln(g, 'path', { d: 'M-10,-190 q10,-8 20,0', stroke: '#fff', 'stroke-width': 6, opacity: .95 });
+  lampSpots.push({ x, y: y - 160 * s, r: 70 * s });
+  lampSpots.push({ x: x - 26 * s, y: y - 108 * s, r: 34 * s, arm: true });
+  lampSpots.push({ x: x + 26 * s, y: y - 108 * s, r: 34 * s, arm: true });
+}
+[[132, 654, .92], [508, 664, .9], [1096, 666, .9], [1486, 654, .92]].forEach(a => lamp(...a));
+
+/* ============================ front trees ========================== */
+fir(1556, 800, 1.5);
+fir(46, 792, 1.3);
+nf(gFront, 'path', { d: `M-20,${H} L-20,872 Q120,850 270,872 T560,868 T850,880 T1130,866 T1420,876 T1640,858 L1640,${H} Z`, fill: '#fff', stroke: INK, 'stroke-width': 3 });
+nf(gFront, 'path', { d: 'M40,884 q80,-10 160,0 M720,890 q90,-8 190,0 M1320,886 q80,-10 160,0', stroke: '#c9d6e6', 'stroke-width': 5, fill: 'none', 'stroke-linecap': 'round' });
+
+/* =========================== FX layer ============================== */
+const fxWin = el('g', {}, fx), fxLamp = el('g', {}, fx), fxSmoke = el('g', {}, fx), fxFolk = el('g', {}, fx), fxBulb = el('g', {}, fx);
+shops.forEach(s => {
+  nf(fxWin, 'polygon', { points: `${s.x - 4},${G} ${s.x + s.w + 4},${G} ${s.x + s.w + 40},${G + 66} ${s.x - 36},${G + 66}`, fill: 'url(#floorG)', class: 'breathe', style: `animation-delay:-${(R() * 5).toFixed(2)}s;animation-duration:${rnd(4, 7).toFixed(1)}s` });
+});
+wins.forEach(w => {
+  const st = `animation-duration:${rnd(2.6, 7.5).toFixed(2)}s;animation-delay:-${rnd(0, 8).toFixed(2)}s`;
+  nf(fxWin, 'rect', { x: w.x, y: w.y, width: w.w, height: w.h, fill: '#fff2b8', class: 'flick', style: st, rx: 1 });
+});
+lampSpots.forEach((l, i) => {
+  nf(fxLamp, 'circle', { cx: l.x, cy: l.y, r: l.r, fill: 'url(#glowG)', class: 'pulse', style: `animation-delay:-${i * .8}s` });
+  if (!l.arm) nf(fxLamp, 'ellipse', { cx: l.x, cy: l.y + 165, rx: 70, ry: 14, fill: 'url(#glowG)', opacity: .35 });
+});
+nf(fxLamp, 'circle', { cx: tx(800), cy: ty(158), r: 80 * TS, fill: 'url(#glowG)', class: 'pulse' });
+
+smokes.forEach((s, k) => {
+  for (let i = 0; i < 4; i++) {
+    const st = `--dx:${rnd(8, 36).toFixed(0)}px;animation-delay:-${(i * 1.5 + k * .37).toFixed(2)}s;animation-duration:${rnd(6, 7.5).toFixed(1)}s`;
+    nf(fxSmoke, 'circle', { cx: s.x, cy: s.y, r: rnd(7, 10), fill: '#fffaf0', opacity: .75, class: 'puff', style: st });
+    nf(fxSmoke, 'path', { d: `M${s.x},${s.y} c-9,-6 -13,-16 -3,-21 c10,-5 14,-15 4,-21 c-8,-5 -6,-15 4,-19`, stroke: '#7d778c', 'stroke-width': 2, fill: 'none', 'stroke-linecap': 'round', class: 'puff', style: st });
+  }
+});
+[...bulbs, ...treeBulbs.map(b => ({ x: tx(b.x), y: ty(b.y), c: b.c }))].forEach(b => {
+  nf(fxBulb, 'circle', { cx: b.x, cy: b.y, r: 3, fill: b.c, class: 'tw', style: `animation-delay:-${rnd(0, 3).toFixed(2)}s;animation-duration:${rnd(1.6, 3.4).toFixed(2)}s` });
+});
+
+/* =========================== PEOPLE =============================== */
+pe.innerHTML = `<defs>
+  <pattern id="tweed" width="5" height="5" patternUnits="userSpaceOnUse"><path d="M0,5 L5,0 M-1,1 L1,-1 M4,6 L6,4" stroke="#26222e" stroke-width=".6" opacity=".55" fill="none"/></pattern>
+  <pattern id="knit" width="4" height="4" patternUnits="userSpaceOnUse"><path d="M0,0 L2,3 L4,0" stroke="#26222e" stroke-width=".7" opacity=".4" fill="none"/></pattern>
+</defs>`;
+const plShop = el('g', {}, pe), plTerrace = el('g', {}, pe), pl1 = el('g', {}, pe), plMid = el('g', {}, pe), pl2 = el('g', {}, pe), plMid2 = el('g', {}, pe), pl3 = el('g', {}, pe), plNotes = el('g', {}, pe);
+ROUGH = 1;
+
+const SKIN = ['#f0cfb0', '#e6b894', '#c98e66', '#8d5a3b'];
+const COATS = ['#a8453a', '#2b3a5a', '#d6a93f', '#3d6a55', '#6a4a6a', '#c98a86', '#2a2630', '#8f5a32', '#4a7a86', '#5a5a6a'];
+const HATC = ['#2a2630', '#a8453a', '#e0b043', '#2b3a5a', '#efe5cf', '#6a4a6a'];
+
+/* tapered limb with rounded ends */
+function capsule(x1, y1, x2, y2, w1, w2) {
+  const dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L, F = n => n.toFixed(1);
+  const a = [x1 + nx * w1 / 2, y1 + ny * w1 / 2], b = [x2 + nx * w2 / 2, y2 + ny * w2 / 2], c = [x2 - nx * w2 / 2, y2 - ny * w2 / 2], d = [x1 - nx * w1 / 2, y1 - ny * w1 / 2];
+  return `M${F(a[0])},${F(a[1])} L${F(b[0])},${F(b[1])} A${F(w2 / 2)},${F(w2 / 2)} 0 0 0 ${F(c[0])},${F(c[1])} L${F(d[0])},${F(d[1])} A${F(w1 / 2)},${F(w1 / 2)} 0 0 0 ${F(a[0])},${F(a[1])} Z`;
+}
+const cap = (g, x1, y1, x2, y2, w1, w2, fill, sw) => ln(g, 'path', { d: capsule(x1, y1, x2, y2, w1, w2), fill, 'stroke-width': sw || 1.6 });
+
+/* things people carry; drawn upright around the hand, origin = the hand */
+const ITEMS = {
+  bag(g) {
+    const c = pick(['#c9a26a', '#a8453a', '#2b3a5a', '#efe5cf', '#3d6a55']);
+    if (R() < .6) cap(g, -3, 14, -7, -14, 6.4, 5.4, '#d6a05a');
+    if (R() < .5) ln(g, 'path', { d: 'M3,14 q3,-12 8,-20 q-1,10 -5,22 z', fill: '#3d6a55', 'stroke-width': 1.3 });
+    ln(g, 'path', { d: 'M-11,6 L11,6 L9.5,36 L-9.5,36 Z', fill: c, 'stroke-width': 1.8 });
+    nf(g, 'path', { d: 'M-10.4,13 L10.4,13', stroke: shade(c, -.25), 'stroke-width': 1 });
+    ln(g, 'rect', { x: -5.5, y: 18, width: 11, height: 8, rx: 1, fill: '#fbf3df', 'stroke-width': 1 });
+    nf(g, 'path', { d: 'M-3,21 h6 M-3,24 h4', stroke: INK, 'stroke-width': .8, opacity: .6 });
+    ln(g, 'path', { d: 'M-5,6 Q-5,-3 0,-3 Q5,-3 5,6', fill: 'none', 'stroke-width': 1.4 });
+    return { near: { up: -6, fo: -4 }, base: 0, sway: 5 };
+  },
+  basket(g) {
+    nf(g, 'path', { d: 'M-12,9 Q0,-16 12,9', stroke: '#8a6a3a', 'stroke-width': 2.4, fill: 'none', 'stroke-linecap': 'round' });
+    cap(g, -4, 12, -10, -22, 6.4, 5.4, '#d6a05a');
+    cap(g, 5, 12, 7, -6, 7, 4, '#3d6a55', 1.5);
+    cap(g, 7, -4, 7.4, -17, 3.4, 3, '#3d6a55', 1.3);
+    ln(g, 'rect', { x: 5.6, y: -19, width: 3.6, height: 3, fill: '#a8453a', 'stroke-width': 1 });
+    ln(g, 'path', { d: 'M-14,7 L14,7 L10.5,30 L-10.5,30 Z', fill: '#c9a063', 'stroke-width': 1.8 });
+    { let d = ''; for (let yy = 12; yy < 30; yy += 5) d += `M-13,${yy} L13,${yy} `; for (let xx = -9; xx <= 9; xx += 6) d += `M${xx},7 L${xx * .8},30 `; nf(g, 'path', { d, stroke: INK, 'stroke-width': .8, opacity: .35, fill: 'none' }); }
+    ln(g, 'rect', { x: -15, y: 4.5, width: 30, height: 4, rx: 2, fill: '#b58a4c', 'stroke-width': 1.5 });
+    ln(g, 'path', { d: 'M-4,5 l6,-8 l6,8 z', fill: '#a8453a', 'stroke-width': 1.2 });
+    return { near: { up: -14, fo: -60 }, base: 0, sway: 4 };
+  },
+  baguette(g) {
+    ln(g, 'path', { d: capsule(0, 7, 0, -46, 7.5, 6.2), fill: '#d6a05a', 'stroke-width': 1.6 });
+    [-12, -22, -32].forEach(y => nf(g, 'path', { d: `M-2.6,${y + 3} l5.2,-5`, stroke: '#a8702f', 'stroke-width': 1.6, 'stroke-linecap': 'round' }));
+    ln(g, 'path', { d: 'M-4.6,10 L4.6,10 L4,-8 L-4,-8 Z', fill: '#efe5cf', 'stroke-width': 1.3 });
+    return { near: { up: -14, fo: -64 }, base: 12 };
+  },
+  bouquet(g) {
+    ln(g, 'path', { d: 'M-1.5,5 L-14,-20 L14,-20 L1.5,5 Z', fill: '#efe5cf', 'stroke-width': 1.5 });
+    nf(g, 'path', { d: 'M-6,-4 L6,-4', stroke: '#c98a86', 'stroke-width': 1.4 });
+    nf(g, 'path', { d: 'M-8,-20 L-12,-34 M0,-20 L0,-37 M8,-20 L12,-34 M-4,-20 L-7,-30 M4,-20 L7,-30', stroke: '#3d6a55', 'stroke-width': 1.6, 'stroke-linecap': 'round' });
+    [[-10, -27, '#a8453a'], [0, -33, '#e7b85a'], [10, -27, '#c98a86'], [-4, -23, '#efe5cf'], [5, -23, '#a8453a'], [0, -26, '#6a4a6a']].forEach(([x, y, c]) => {
+      ln(g, 'circle', { cx: x, cy: y, r: 5.2, fill: c, 'stroke-width': 1.1 }); nf(g, 'circle', { cx: x, cy: y, r: 1.5, fill: '#e0b043' });
+    });
+    ln(g, 'path', { d: 'M-3,-6 l-5,-3 l1,6 z M3,-6 l5,-3 l-1,6 z', fill: '#a8453a', 'stroke-width': 1 });
+    return { near: { up: -28, fo: -98 }, base: -6 };
+  },
+  umbrella(g) {
+    nf(g, 'path', { d: 'M-3,-8 Q-3,-15 2,-15 Q7,-15 7,-9', stroke: '#6b4a3a', 'stroke-width': 2.6, fill: 'none', 'stroke-linecap': 'round' });
+    ln(g, 'path', { d: capsule(0, -8, 0, 56, 6, 2.2), fill: '#2a2630', 'stroke-width': 1.5 });
+    nf(g, 'path', { d: 'M-1.5,10 L1.5,10 M-1.4,24 L1.4,24', stroke: '#8a8498', 'stroke-width': 1.2 });
+    nf(g, 'line', { x1: 0, y1: 56, x2: 0, y2: 63, stroke: '#b9b2a0', 'stroke-width': 1.3, 'stroke-linecap': 'round' });
+    return { near: { up: -8, fo: -18 }, base: 12, sway: 3 };
+  },
+  parcels(g) {
+    let y = 3;
+    [[26, 14, '#a8453a', '#e0b043'], [20, 12, '#2b3a5a', '#efe5cf'], [14, 9, '#efe5cf', '#a8453a']].forEach(([w, h, c, r]) => {
+      const x = 6 - w / 2;
+      ln(g, 'rect', { x, y: y - h, width: w, height: h, fill: c, 'stroke-width': 1.6 });
+      nf(g, 'rect', { x: x + w / 2 - 2, y: y - h, width: 4, height: h, fill: r });
+      ln(g, 'path', { d: `M${x+w/2},${y-h} q-6,-7 -8,-1 q3,3 8,1 z M${x+w/2},${y-h} q6,-7 8,-1 q-3,3 -8,1 z`, fill: r, 'stroke-width': 1 });
+      y -= h;
+    });
+    return { near: { up: -12, fo: -50 }, far: { up: -6, fo: -58 }, base: 0 };
+  },
+  cakebox(g) {
+    nf(g, 'path', { d: 'M0,0 L-9,13 M0,0 L9,13', stroke: '#a8453a', 'stroke-width': 1.2 });
+    ln(g, 'rect', { x: -12, y: 12, width: 24, height: 16, fill: '#efe5cf', 'stroke-width': 1.6 });
+    nf(g, 'path', { d: 'M-12,17 L12,17 M-4,12 L-4,28 M4,12 L4,28', stroke: '#c98a86', 'stroke-width': 2 });
+    ln(g, 'path', { d: 'M0,12 q-7,-7 -9,-1 q3,3 9,1 z M0,12 q7,-7 9,-1 q-3,3 -9,1 z', fill: '#c98a86', 'stroke-width': 1 });
+    return { near: { up: -8, fo: -10 }, base: 0, sway: 5 };
+  },
+  cup(g, o, ph) {
+    ln(g, 'path', { d: 'M-5,-2 L5,-2 L4,9 L-4,9 Z', fill: '#fbf3df', 'stroke-width': 1.4 });
+    ln(g, 'path', { d: 'M5,0 q5,1 4,5 q-1,3 -5,3', fill: 'none', 'stroke-width': 1.2 });
+    nf(g, 'ellipse', { cx: 0, cy: -2, rx: 5, ry: 1.4, fill: '#6b4a3a' });
+    const st = el('g', {}, g);
+    nf(st, 'path', { d: 'M-2,-5 q-3,-5 0,-9 q3,-4 0,-9 M2,-5 q-3,-5 0,-9', stroke: '#9a94a4', 'stroke-width': 1.3, fill: 'none', opacity: .7, 'stroke-linecap': 'round' });
+    return { near: { up: -30, fo: -108 }, base: 0, update(t) { st.setAttribute('transform', `translate(${(Math.sin(t * 2 + ph) * 1.5).toFixed(1)} 0)`); } };
+  },
+  cone(g, o, ph) {                                              // roasted chestnuts in a paper cone
+    ln(g, 'path', { d: 'M-1.5,5 L-10,-16 L10,-16 L1.5,5 Z', fill: '#d9c9a0', 'stroke-width': 1.4 });
+    nf(g, 'path', { d: 'M-6,-8 L5,-9 M-4,-1 L3,-2', stroke: '#8a6a3a', 'stroke-width': .9, opacity: .7 });
+    [[-6, -18], [0, -20], [6, -18], [-3, -16], [3, -16]].forEach(([x, y]) => ln(g, 'ellipse', { cx: x, cy: y, rx: 3.6, ry: 3, fill: '#7a4a2a', 'stroke-width': 1 }));
+    const st = el('g', {}, g);
+    nf(st, 'path', { d: 'M-3,-24 q-3,-5 0,-9 q3,-4 0,-9', stroke: '#9a94a4', 'stroke-width': 1.3, fill: 'none', opacity: .7, 'stroke-linecap': 'round' });
+    return { near: { up: -30, fo: -108 }, base: 0, update(t) { st.setAttribute('transform', `translate(${(Math.sin(t * 2.3 + ph) * 1.5).toFixed(1)} 0)`); } };
+  },
+  songbook(g) {
+    ln(g, 'path', { d: 'M0,-4 L-11,-9 L-11,6 L0,11 L11,6 L11,-9 Z', fill: '#fbf3df', 'stroke-width': 1.5 });
+    nf(g, 'path', { d: 'M0,-4 L0,11 M-8,-5 L-3,-3 M-8,-1 L-3,1 M3,-3 L8,-5 M3,1 L8,-1', stroke: INK, 'stroke-width': .8, opacity: .6, fill: 'none' });
+    return { near: { up: -42, fo: -92 }, far: { up: -38, fo: -100 }, base: 0 };
+  },
+  balloon(g, o, ph) {
+    const c = pick(['#a8453a', '#e0b043', '#2b3a5a', '#c98a86']), bal = el('g', {}, g);
+    ln(bal, 'path', { d: 'M0,-3 Q-4,-24 2,-48', fill: 'none', 'stroke-width': 1 });
+    ln(bal, 'ellipse', { cx: 3, cy: -62, rx: 11, ry: 13.5, fill: c, 'stroke-width': 1.6 });
+    nf(bal, 'ellipse', { cx: -.5, cy: -67, rx: 3, ry: 4.5, fill: '#fff', opacity: .45 });
+    ln(bal, 'path', { d: 'M3,-48.5 l-2.5,4 h5 z', fill: c, 'stroke-width': 1 });
+    return { near: { up: -40, fo: -30 }, base: 0, update(t) { bal.setAttribute('transform', `translate(${(Math.sin(t * 1.7 + ph) * 3).toFixed(1)} ${(Math.sin(t * 2.3 + ph) * 1.5).toFixed(1)})`); } };
+  },
+  sled(g) {
+    nf(g, 'path', { d: 'M0,1 Q-14,26 -29,52', stroke: '#6b4a3a', 'stroke-width': 1.4, fill: 'none' });
+    ln(g, 'path', { d: 'M-84,61 L-34,61 Q-27,61 -26,52', fill: 'none', 'stroke-width': 2.2 });
+    nf(g, 'path', { d: 'M-76,56 L-76,61 M-44,56 L-44,61', stroke: INK, 'stroke-width': 1.6 });
+    ln(g, 'rect', { x: -82, y: 50, width: 52, height: 6, fill: '#8f5a32', 'stroke-width': 1.6 });
+    nf(g, 'rect', { x: -69, y: 46, width: 5, height: 5, fill: '#6b4a3a' });
+    ln(g, 'polygon', { points: '-66.5,18 -77,34 -56,34', fill: '#2f6648', 'stroke-width': 1.3 });
+    ln(g, 'polygon', { points: '-66.5,28 -81,46 -52,46', fill: '#295b42', 'stroke-width': 1.3 });
+    nf(g, 'path', { d: 'M-66.5,20 l-6,9 M-66.5,30 l-8,12', stroke: '#fff', 'stroke-width': 3, 'stroke-linecap': 'round' });
+    ln(g, 'rect', { x: -48, y: 38, width: 15, height: 12, fill: '#a8453a', 'stroke-width': 1.4 });
+    nf(g, 'rect', { x: -42, y: 38, width: 3.2, height: 12, fill: '#e0b043' });
+    return { near: { up: -8, fo: -4 }, base: 0 };
+  },
+  violin(g) {
+    ln(g, 'path', { d: 'M-3,2 Q-3,-5 0,-5 Q3,-5 3,2', fill: 'none', 'stroke-width': 1.3 });
+    ln(g, 'path', { d: 'M-8,2 L8,2 Q9,16 5,20 Q9,25 6,36 L-6,36 Q-9,25 -5,20 Q-9,16 -8,2 Z', fill: '#2a2630', 'stroke-width': 1.6 });
+    nf(g, 'rect', { x: -4, y: 9, width: 8, height: 2, fill: '#d9a93a' }); nf(g, 'rect', { x: -4, y: 28, width: 8, height: 2, fill: '#d9a93a' });
+    return { near: { up: -6, fo: -4 }, base: 0, sway: 4 };
+  },
+  handbag(g) {
+    const c = pick(['#8f2f2a', '#2a2630', '#8f5a32', '#2b3a5a']);
+    ln(g, 'path', { d: 'M-6,4 Q-6,-5 0,-5 Q6,-5 6,4', fill: 'none', 'stroke-width': 1.4 });
+    ln(g, 'path', { d: 'M-10,5 L10,5 L12,22 Q0,26 -12,22 Z', fill: c, 'stroke-width': 1.7 });
+    nf(g, 'path', { d: 'M-10,11 Q0,15 10,11', stroke: shade(c, -.4), 'stroke-width': 1.4, fill: 'none' });
+    nf(g, 'circle', { cx: 0, cy: 12.5, r: 1.8, fill: '#d9a93a' });
+    return { near: { up: -4, fo: -22 }, base: 0, sway: 5 };
+  },
+  muff(g) {
+    ln(g, 'ellipse', { cx: 5, cy: 0, rx: 12, ry: 8.5, fill: '#8a6a52', 'stroke-width': 1.7 });
+    nf(g, 'path', { d: 'M-4,-4 l3,2 M2,-6 l2,3 M9,-5 l-1,3 M14,-2 l-3,2 M-2,3 l3,-1 M6,4 l2,-2', stroke: '#c9a98a', 'stroke-width': 1.3, 'stroke-linecap': 'round' });
+    return { near: { up: -20, fo: -80 }, far: { up: -16, fo: -86 }, base: 0 };
+  },
+  lantern(g) {
+    nf(g, 'circle', { cx: 0, cy: 22, r: 19, fill: '#ffd27a', opacity: .34 });
+    ln(g, 'path', { d: 'M-4,4 Q0,-3 4,4', fill: 'none', 'stroke-width': 1.2 });
+    ln(g, 'polygon', { points: '-7,9 7,9 5,5 -5,5', fill: '#2c3a36', 'stroke-width': 1.2 });
+    ln(g, 'rect', { x: -6, y: 9, width: 12, height: 16, fill: '#ffe08a', 'stroke-width': 1.4 });
+    nf(g, 'rect', { x: -1, y: 13, width: 2, height: 9, fill: '#fbf3df' });
+    ln(g, 'rect', { x: -7, y: 25, width: 14, height: 3, fill: '#2c3a36', 'stroke-width': 1.2 });
+    return { near: { up: -4, fo: -14 }, base: 0, sway: 4 };
+  },
+  wreath(g) {
+    ln(g, 'circle', { cx: 0, cy: 12, r: 10.5, fill: 'none', stroke: '#2f6648', 'stroke-width': 6.5 });
+    nf(g, 'circle', { cx: 0, cy: 12, r: 10.5, fill: 'none', stroke: '#5f9a73', 'stroke-width': 1.6, 'stroke-dasharray': '2 4' });
+    [[-8, 8], [7, 18], [3, 3], [-5, 19]].forEach(([x, y]) => nf(g, 'circle', { cx: x, cy: y, r: 1.7, fill: '#b53a34' }));
+    ln(g, 'path', { d: 'M0,22 l-6,5 l1,-8 z M0,22 l6,5 l-1,-8 z', fill: '#a8453a', 'stroke-width': 1 });
+    return { near: { up: -14, fo: -34 }, base: 0, sway: 4 };
+  },
+  gift(g) {
+    ln(g, 'rect', { x: -9, y: -13, width: 18, height: 14, fill: pick(['#a8453a', '#2b3a5a', '#3d6a55']), 'stroke-width': 1.5 });
+    nf(g, 'rect', { x: -1.8, y: -13, width: 3.6, height: 14, fill: '#e0b043' });
+    ln(g, 'path', { d: 'M0,-13 q-7,-8 -9,-1 q4,3 9,1 z M0,-13 q7,-8 9,-1 q-4,3 -9,1 z', fill: '#e0b043', 'stroke-width': 1 });
+    return { near: { up: -30, fo: -78 }, base: 0 };
+  },
+};
+
+Object.assign(ITEMS, {
+  tray(g) {
+    ln(g, 'ellipse', { cx: 8, cy: -5, rx: 17, ry: 2.8, fill: '#c9ced6', 'stroke-width': 1.3 });
+    [-1, 7, 15].forEach(x => { ln(g, 'path', { d: `M${x-3.4},-6 L${x+3.4},-6 L${x+2.6},-15 L${x-2.6},-15 Z`, fill: '#fbf3df', 'stroke-width': 1.1 }); nf(g, 'ellipse', { cx: x, cy: -15, rx: 2.6, ry: .9, fill: '#6b4a3a' }); });
+    cap(g, 21, -6, 21, -26, 5.4, 3.6, '#3d6a55', 1.2);
+    return { near: { up: -24, fo: -112 }, base: 0 };
+  },
+  paper(g) {
+    ln(g, 'path', { d: 'M2,-8 L-31,-12 L-32,22 L2,26 Z', fill: '#efe9da', 'stroke-width': 1.4 });
+    ln(g, 'path', { d: 'M2,-8 L9,-11 L9.6,22.6 L2,26 Z', fill: '#e2d9c3', 'stroke-width': 1.2 });
+    nf(g, 'path', { d: 'M-27,-4 h22 M-27,2 h22 M-27,8 h12 M-27,14 h20 M-27,19 h14 M-12,6 h8 v8 h-8 z', stroke: INK, 'stroke-width': .8, opacity: .45, fill: 'none' });
+    return { near: { up: -22, fo: -70 }, far: { up: -18, fo: -76 }, base: -2 };
+  },
+  accordion(g) {
+    const bel = el('g', {}, g), rb = el('g', {}, g);
+    ln(g, 'rect', { x: -26, y: -12, width: 10, height: 28, rx: 2.5, fill: '#2a2630', 'stroke-width': 1.5 });
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 2; c++) nf(g, 'circle', { cx: -23 + c * 4.5, cy: -6 + r * 6.5, r: 1.2, fill: '#efe5cf' });
+    ln(bel, 'path', { d: 'M-16,-9 L8,-9 L8,13 L-16,13 Z', fill: '#a8453a', 'stroke-width': 1.5 });
+    nf(bel, 'path', { d: 'M-12,-9 L-12,13 M-8,-9 L-8,13 M-4,-9 L-4,13 M0,-9 L0,13 M4,-9 L4,13', stroke: '#efe5cf', 'stroke-width': 1.3, opacity: .85 });
+    ln(rb, 'rect', { x: 8, y: -12, width: 10, height: 28, rx: 2.5, fill: '#2a2630', 'stroke-width': 1.5 });
+    nf(rb, 'rect', { x: 10, y: -7, width: 6, height: 3, fill: '#d9a93a' }); nf(rb, 'rect', { x: 10, y: 0, width: 6, height: 3, fill: '#d9a93a' }); nf(rb, 'rect', { x: 10, y: 7, width: 6, height: 3, fill: '#d9a93a' });
+    return { near: { up: -38, fo: -84 }, far: { up: -36, fo: -90 }, base: 0, update(t, ph) {
+      const sx = 1 + .2 * Math.sin(t * 1.9 + ph);
+      bel.setAttribute('transform', `translate(-16 0) scale(${sx.toFixed(3)} 1) translate(16 0)`);
+      rb.setAttribute('transform', `translate(${((sx - 1) * 24).toFixed(2)} 0)`);
+    } };
+  },
+  brush(g) {
+    cap(g, 0, 3, 24, -3, 2.4, 1.6, '#6b4a3a', 1.1);
+    nf(g, 'path', { d: 'M24,-3 l5,-1.6', stroke: '#a8453a', 'stroke-width': 2.6, 'stroke-linecap': 'round' });
+    return { near: { up: -72, fo: -22 }, base: 0 };
+  },
+});
+const FAR_ITEMS = {
+  palette(g) {
+    ln(g, 'path', { d: 'M-10,-6 Q-12,-14 0,-14 Q14,-13 15,-2 Q16,8 4,8 Q-1,8 -2,3 Q-2,-1 -6,0 Q-10,0 -10,-6 Z', fill: '#c9a063', 'stroke-width': 1.4 });
+    [[-6, -8, '#a8453a'], [0, -9, '#e0b043'], [6, -8, '#2b3a5a'], [10, -2, '#3d6a55'], [7, 3, '#efe5cf']].forEach(([x, y, c]) => nf(g, 'circle', { cx: x, cy: y, r: 2.6, fill: c }));
+    return { base: 0 };
+  },
+};
+
+/* what a person is doing when they are not walking; each returns overrides for the pose */
+const sm = x => x * x * (3 - 2 * x);
+const ACT = {
+  sip(t, ph) {
+    const u = (t + ph * 1.3) % 8, k = u < .8 ? sm(u / .8) : u < 1.5 ? 1 : u < 2.3 ? 1 - sm((u - 1.5) / .8) : 0;
+    return { nU: -30 - 14 * k, nF: -108 - 42 * k, head: -7 * k, item: 52 * k, breath: .15 };
+  },
+  read(t, ph) { return { head: 5 + 1.5 * Math.sin(t * .8 + ph), nU: -22 + Math.sin(t * 1.1 + ph), breath: .1 }; },
+  talk(t, ph, c) {
+    const spk = Math.floor((t + (c.off || 0)) / 4.4) % (c.n || 2) === (c.i || 0);
+    if (spk) { const g1 = Math.sin(t * 3.1 + ph * 2), g2 = Math.sin(t * 2.3 + ph); return { fU: -38 + 26 * g1, fF: -62 - 32 * (g2 * .5 + .5), head: 3 * Math.sin(t * 4 + ph), mouth: 1 + Math.abs(Math.sin(t * 7 + ph)) * 2.2, breath: 1 }; }
+    return { head: -2 + 2 * Math.sin(t * 1.2 + ph), breath: .25 };
+  },
+  point(t, ph) {
+    const s = Math.sin(t * .6 + ph);
+    if (s > .55) return { nU: -80 - 6 * Math.sin(t * 5), nF: -12, head: -4 };
+    if (s < -.4) return { nU: -40, nF: -126, head: -3 };
+    return { head: 0 };
+  },
+  paint(t, ph) {
+    const dab = Math.sin(t * 2.6), away = Math.sin(t * .35 + ph) > .8;
+    return { nU: -72 + 6 * dab, nF: -22 + (away ? 0 : 16 * Math.sin(t * 5.1)), fU: -28, fF: -96, head: away ? -4 : 3 * dab, lean: away ? -2 : 3 };
+  },
+  play(t, ph) { const sq = Math.sin(t * 1.9 + ph); return { nU: -38 - 5 * sq, nF: -84, fU: -36 + 5 * sq, fF: -90, head: 2 * Math.sin(t * 1.9), tap: Math.abs(Math.sin(t * 3.8)), lean: 1 + sq, breath: .5 }; },
+  dance(t, ph) { const s = Math.sin(t * 4 + ph); return { nU: -50 + 30 * s, nF: -20, fU: -50 - 30 * s, fF: -20, bob: 3 * Math.abs(Math.sin(t * 4 + ph)), head: 4 * Math.sin(t * 2), tap: Math.max(0, s) * .6 }; },
+  stir(t, ph) { return { nU: -30 + 6 * Math.sin(t * 2), nF: -64 + 12 * Math.sin(t * 2 + 1), fU: -10, fF: -20, head: 4, breath: .3 }; },
+  throw(t, ph, c) {
+    const T = 7, u = t % T, mine = Math.floor(t / T) % 2 === c.role;
+    if (mine) {
+      if (u < .9) { const k = sm(u / .9); return { nU: 20 + 100 * k, nF: -20 - 30 * k, lean: -5 * k }; }
+      if (u < 1.15) { const k = (u - .9) / .25; return { nU: 120 - 250 * sm(k), nF: -50 + 30 * k, lean: -5 + 11 * k }; }
+      if (u < 2.2) { const k = sm((u - 1.15) / 1.05); return { nU: -130 + 150 * k, nF: -20, lean: 6 * (1 - k) }; }
+      return {};
+    }
+    if (u > 1.9 && u < 3.4) return { nU: -100, nF: -30, fU: -95, fF: -30, bob: 3 * Math.abs(Math.sin(t * 9)), head: -6 };
+    return {};
+  },
+};
+
+function makePerson(parent, o) {
+  const k = o.kid ? .66 : 1, HIP = -66, SH = -107;
+  const root = el('g', {}, parent), sc = el('g', { transform: `scale(${k})` }, root), body = el('g', {}, sc);
+  const coat = o.coat, coatD = shade(coat, -.18), pants = o.pants, skin = o.skin;
+  const INKS = { stroke: INK, 'stroke-width': .8, fill: 'none' };
+
+  const mkLeg = far => {
+    const fill = far ? shade(pants, -.22) : pants, boot = far ? '#1f1c26' : '#2a2630';
+    const g = el('g', {}, body), kn = el('g', {}, g), ft = el('g', {}, kn);
+    cap(g, 0, 0, 0, 31, 12.5, 10, fill, 1.7);
+    cap(kn, 0, 0, 0, 29, 10, 7.5, fill, 1.7);
+    nf(kn, 'path', Object.assign({ d: 'M-1,4 L-.6,22', opacity: .28 }, INKS));
+    nf(g, 'path', Object.assign({ d: 'M-4,6 q3,8 1,19', opacity: .22 }, INKS));
+    hatch(kn, -4.5, 6, 4, 18, 4, .22);
+    if (o.spats) ln(kn, 'path', { d: 'M-5,21 L5,21 L5.4,29 L-5.4,29 Z', fill: '#cfc8b8', 'stroke-width': 1.1 });
+    ln(ft, 'path', { d: 'M-4.5,-3 L4.2,-3 L5,2 Q11,2.4 12.6,6 L-5.6,6.6 Q-6.2,1.5 -4.5,-3 Z', fill: boot, 'stroke-width': 1.6 });
+    nf(ft, 'path', { d: 'M-2,-1.6 l4,.8 M-2.2,.8 l4.4,.9', stroke: '#8a8498', 'stroke-width': .8, fill: 'none' });
+    nf(ft, 'path', { d: 'M-5.6,6.2 L12.5,5.4', stroke: '#8a8498', 'stroke-width': 1 });
+    return { g, kn, ft };
+  };
+  const legFar = mkLeg(true), legNear = mkLeg(false);
+  const up = el('g', {}, body);
+
+  const glove0 = o.bare ? skin : o.glove;
+  const mkArm = (far, par) => {
+    const sl = far ? coatD : coat, glove = far ? shade(glove0, -.15) : glove0;
+    const g = el('g', {}, par), fo = el('g', {}, g), hand = el('g', { transform: 'translate(0 22.5)' }, fo);
+    cap(g, 0, 0, 0, 24.5, 9, 7.8, sl, 1.7);
+    cap(fo, 0, 0, 0, 23, 7.8, 6.4, sl, 1.7);
+    nf(g, 'path', Object.assign({ d: 'M-1,8 q2,5 -1,12', opacity: .3 }, INKS));
+    ln(fo, 'rect', { x: -4.2, y: 17.5, width: 8.4, height: 3.6, rx: 1.6, fill: shade(sl, o.fur ? .5 : .2), 'stroke-width': 1.2 });
+    ln(hand, 'circle', { cx: 0, cy: 2, r: 3.6, fill: glove, 'stroke-width': 1.3 });
+    ln(hand, 'ellipse', { cx: 2.6, cy: .5, rx: 1.7, ry: 2.4, fill: glove, 'stroke-width': 1 });
+    nf(hand, 'path', Object.assign({ d: 'M-2.4,4.6 l.6,2 M-.6,5.2 l.4,2.2 M1.4,5 l.3,2.1', opacity: .7 }, INKS));
+    return { g, fo, hand };
+  };
+  const armFar = mkArm(true, up);
+  const igF = el('g', {}, armFar.hand);
+  const specF = o.farItem && FAR_ITEMS[o.farItem] ? FAR_ITEMS[o.farItem](igF) : null;
+
+  /* coat */
+  const tors = el('g', {}, up), hem = o.fem ? -36 : -44;
+  const coatPath = o.fem ? `M-9,-109 C-13,-104 -13.5,-92 -10.5,-80 C-9.5,-72 -12,-62 -17,-50 C-19,-44 -21,-40 -21,${hem} Q0,${hem + 6} 21,${hem} C21,-40 19,-44 17,-50 C12,-62 9.5,-72 10.5,-80 C13.5,-92 13,-104 9,-109 C4,-114 -4,-114 -9,-109 Z`
+                         : `M-10,-109 C-15,-104 -15,-90 -13,-78 C-12,-70 -13.5,-58 -14.5,-48 L-15,${hem} Q0,${hem + 5} 15,${hem} L14.5,-48 C13.5,-58 12,-70 13,-78 C15,-90 15,-104 10,-109 C4,-114 -4,-114 -10,-109 Z`;
+  ln(tors, 'path', { d: coatPath, fill: coat, 'stroke-width': 2.2 });
+  nf(tors, 'path', { d: coatPath, fill: 'url(#tweed)', opacity: .3 });
+  nf(tors, 'path', { d: o.fem ? `M-19.5,${hem - 1} Q0,${hem + 4} 19.5,${hem - 1}` : `M-14,${hem - 1} Q0,${hem + 3} 14,${hem - 1}`, stroke: shade(coat, -.3), 'stroke-width': 2.4, fill: 'none' });
+  hatch(tors, -12.5, -100, 7, 50, 4.2, .26);
+  nf(tors, 'path', Object.assign({ d: 'M-5,-66 q-2,12 -5,24 M2,-62 q1,10 -1,20 M9,-64 q2,10 3,20', opacity: .3 }, INKS));
+  nf(tors, 'path', Object.assign({ d: 'M5,-108 Q6,-80 7.5,-48', opacity: .55 }, INKS));
+  nf(tors, 'path', Object.assign({ d: 'M-8,-107 q-2,10 -2,20', opacity: .3 }, INKS));
+  [-98, -86, -74, -62].forEach(y => { nf(tors, 'circle', { cx: 5.8 + (y + 98) * .02, cy: y, r: 1.4, fill: shade(coat, -.5) }); nf(tors, 'circle', { cx: 5.8 + (y + 98) * .02, cy: y, r: .5, fill: '#efe5cf', opacity: .7 }); });
+  if (o.belt) { ln(tors, 'rect', { x: -10.5, y: -80, width: 21.5, height: 4.2, fill: shade(coat, -.35), 'stroke-width': 1.2 }); nf(tors, 'rect', { x: 3, y: -80.4, width: 4.4, height: 5, fill: '#d9a93a' }); }
+  ln(tors, 'path', { d: 'M-3,-62 l9,-1.5', fill: 'none', 'stroke-width': 1.1 });
+  nf(tors, 'circle', { cx: 1.5, cy: -62.8, r: 1, fill: shade(coat, -.5) });
+  if (o.apron) { ln(tors, 'path', { d: 'M-9,-74 L12,-74 L14,-26 L-11,-26 Z', fill: '#fbf3df', 'stroke-width': 1.5 }); nf(tors, 'path', Object.assign({ d: 'M-6,-60 h10 v9 h-10 z', opacity: .5 }, INKS)); }
+  if (o.smock) [[-4, -58, '#a8453a'], [5, -52, '#e0b043'], [-8, -46, '#2b3a5a'], [2, -64, '#3d6a55'], [8, -70, '#efe5cf']].forEach(([x, y, c]) => nf(tors, 'circle', { cx: x, cy: y, r: 2.1, fill: c, opacity: .9 }));
+  ln(tors, 'path', { d: 'M-8,-111 Q-1,-104 7,-111 L10,-107 Q1,-98 -9,-107 Z', fill: o.fur ? '#ece4d4' : shade(coat, -.12), 'stroke-width': 1.6 });
+  if (o.fur) for (let i = 0; i < 7; i++) ln(tors, 'circle', { cx: -8 + i * 2.8, cy: -105 + Math.sin(i * 1.1) * 2.4, r: 3.1, fill: '#efe7d6', 'stroke-width': .9 });
+  ln(tors, 'ellipse', { cx: 0, cy: -112.5, rx: 8.6, ry: 3.4, fill: o.scarf, 'stroke-width': 1.4 });
+  nf(tors, 'ellipse', { cx: 0, cy: -112.5, rx: 8.6, ry: 3.4, fill: 'url(#knit)' });
+
+  /* head */
+  const hdT = a => o.kid ? `translate(0 -117) scale(1.3) rotate(${a.toFixed(1)}) translate(0 117)` : `rotate(${a.toFixed(1)} 0 -117)`;
+  const hd = el('g', { transform: hdT(0) }, up), hc = o.hair, hcDark = hc === '#c9a15a' ? '#8a6a3a' : hc;
+  if (o.hairStyle === 'long') ln(hd, 'path', { d: 'M-5,-137 Q-15,-128 -13.5,-108 Q-7,-104 -3.5,-110 Q-6,-120 -3,-131 Z', fill: hc, 'stroke-width': 1.5 });
+  else if (o.hairStyle === 'bob') ln(hd, 'path', { d: 'M-5,-137 Q-14,-130 -12,-117 Q-6,-114 -3,-119 Q-5,-125 -3,-131 Z', fill: hc, 'stroke-width': 1.5 });
+  else if (o.hairStyle === 'bun') ln(hd, 'circle', { cx: -9.5, cy: -136, r: 5, fill: hc, 'stroke-width': 1.5 });
+  if (o.hairStyle === 'long' || o.hairStyle === 'bob') nf(hd, 'path', Object.assign({ d: 'M-9,-130 q-2,8 -1,14 M-7,-132 q-3,10 -2,18', opacity: .45 }, INKS));
+  cap(hd, 0, -113, 0, -121, 7, 6.6, shade(skin, -.1), 1.4);
+  ln(hd, 'ellipse', { cx: 0, cy: -128, rx: 8, ry: 9.4, fill: skin, 'stroke-width': 1.6 });
+  ln(hd, 'ellipse', { cx: -1.2, cy: -128, rx: 2, ry: 2.8, fill: skin, 'stroke-width': 1.2 });
+  nf(hd, 'path', Object.assign({ d: 'M-1.6,-129 q1,1.4 .2,2.6', opacity: .55 }, INKS));
+  ln(hd, 'path', { d: 'M7.6,-131 L11.4,-126.4 L8,-125.6', fill: skin, 'stroke-width': 1.4, 'stroke-linejoin': 'round' });
+  nf(hd, 'circle', { cx: 9.2, cy: -125.8, r: .5, fill: INK, opacity: .6 });
+  nf(hd, 'ellipse', { cx: 3, cy: -125, rx: 3, ry: 2, fill: '#e0877a', opacity: .26 });
+  nf(hd, 'path', Object.assign({ d: 'M3,-121 q2,2.6 5,1.4', opacity: .16 }, INKS));
+  nf(hd, 'path', { d: 'M2.6,-130.6 q1.8,-1.2 3.6,0', stroke: INK, 'stroke-width': .8, fill: 'none', opacity: .7 });
+  nf(hd, 'ellipse', { cx: 4.4, cy: -129.6, rx: 1.15, ry: 1.45, fill: INK });
+  if (o.fem) nf(hd, 'path', { d: 'M5.4,-130.6 l1.8,-1.2 M5.8,-129.6 l1.9,-.5', stroke: INK, 'stroke-width': .8, fill: 'none' });
+  nf(hd, 'path', { d: 'M2.4,-132.2 Q4.6,-133.4 6.8,-132.2', stroke: hcDark, 'stroke-width': 1.3, fill: 'none', 'stroke-linecap': 'round' });
+  nf(hd, 'path', { d: 'M6.3,-122.2 q2,.9 3.4,.2', stroke: o.fem ? '#a8453a' : '#7a3b3b', 'stroke-width': 1.3, fill: 'none', 'stroke-linecap': 'round' });
+  const mouth = nf(hd, 'ellipse', { cx: 8.1, cy: -121.6, rx: 1.9, ry: 0, fill: '#5a1f22' });
+  if (o.hairStyle !== 'bald') {
+    ln(hd, 'path', { d: 'M-8.8,-129 Q-9,-139 0,-139.4 Q7.4,-139 8.8,-132.5 Q4.4,-135.4 -.6,-135 Q-5.4,-134.6 -6.2,-129 Z', fill: hc, 'stroke-width': 1.4 });
+    nf(hd, 'path', { d: 'M-6,-136 q3,-2.4 8,-1.6 M-3,-134.6 q3,-1.6 7,-.4 M-7.6,-132 q-.6,-2 .2,-3.4', stroke: hc === '#2a2630' ? '#6a6478' : shade(hc, -.45), 'stroke-width': .8, fill: 'none', opacity: .8 });
+  } else ln(hd, 'path', { d: 'M-8.6,-128 Q-9.4,-134 -6,-137 Q-6.6,-132 -5,-128 Z', fill: '#9a9a9a', 'stroke-width': 1.2 });
+  if (o.stache) ln(hd, 'path', { d: 'M7.4,-123.6 q2,-1.2 4,-.2 q-2,1.6 -4,.2 z', fill: hcDark, 'stroke-width': 1 });
+  const breath = el('g', { opacity: 0 }, hd);
+  [[14, -121, 2.2], [18.5, -124, 3], [23.5, -127, 3.8]].forEach(([x, y, r]) => nf(breath, 'circle', { cx: x, cy: y, r, fill: '#fff', stroke: 'rgba(120,140,175,.55)', 'stroke-width': .7 }));
+  const hcol = o.hatc;
+  switch (o.hat) {
+    case 'beret': ln(hd, 'path', { d: 'M-10,-134 Q-8,-144 3,-143 Q13,-142 12,-134 Q4,-130 -10,-134 Z', fill: hcol, 'stroke-width': 1.6 }); ln(hd, 'line', { x1: 2, y1: -143, x2: 3, y2: -146, 'stroke-width': 1.8 }); hatch(hd, -7, -139, 12, 6, 3, .3); break;
+    case 'top': ln(hd, 'ellipse', { cx: 0, cy: -135, rx: 12, ry: 3, fill: '#2a2630', 'stroke-width': 1.6 }); ln(hd, 'rect', { x: -7.5, y: -156, width: 15, height: 21, rx: 1.5, fill: '#2a2630', 'stroke-width': 1.6 }); nf(hd, 'rect', { x: -7.2, y: -142, width: 14.4, height: 4, fill: '#a8453a' }); nf(hd, 'path', { d: 'M-4.5,-154 L-4.5,-144', stroke: '#8a8498', 'stroke-width': 1.2, opacity: .6 }); break;
+    case 'bowler': ln(hd, 'ellipse', { cx: 0, cy: -135, rx: 12.5, ry: 3, fill: '#2a2630', 'stroke-width': 1.6 }); ln(hd, 'path', { d: 'M-9.5,-135 Q-9.5,-149 0,-149 Q9.5,-149 9.5,-135 Z', fill: '#2a2630', 'stroke-width': 1.6 }); nf(hd, 'path', { d: 'M-5,-146 q3,-2 6,-1', stroke: '#8a8498', 'stroke-width': 1.2, opacity: .6, fill: 'none' }); break;
+    case 'flat': ln(hd, 'path', { d: 'M-9.5,-134 Q-6,-144 4,-143.5 Q10,-143 11,-137 L16,-136 Q16.5,-134.5 14,-134.5 L-9,-134 Z', fill: hcol === '#efe5cf' ? '#8f5a32' : hcol, 'stroke-width': 1.6 }); nf(hd, 'path', { d: 'M-6,-139 l5,3 M-1,-141 l5,3 M3,-141 l4,3', stroke: INK, 'stroke-width': .8, opacity: .4, fill: 'none' }); break;
+    case 'bobble': ln(hd, 'path', { d: 'M-9,-134 Q-9,-146 1,-148 Q10,-146 10,-134 Z', fill: hcol, 'stroke-width': 1.6 }); nf(hd, 'path', { d: 'M-9,-134 Q-9,-146 1,-148 Q10,-146 10,-134 Z', fill: 'url(#knit)' }); ln(hd, 'rect', { x: -10, y: -137.5, width: 20, height: 5.2, rx: 2, fill: '#efe5cf', 'stroke-width': 1.4 }); ln(hd, 'circle', { cx: 1, cy: -150, r: 4.2, fill: '#fbf3df', 'stroke-width': 1.3 }); break;
+    case 'cloche': ln(hd, 'path', { d: 'M-9.5,-127 Q-11,-142 0,-142 Q11,-142 10.5,-130 Q11,-127 11.5,-125 Q0,-123.5 -9.5,-127 Z', fill: hcol, 'stroke-width': 1.6 }); nf(hd, 'path', { d: 'M-10,-130 Q0,-127 10.5,-131', stroke: shade(hcol, -.4), 'stroke-width': 2.2, fill: 'none' }); ln(hd, 'path', { d: 'M-8,-129 q-4,-3 -5,2 q3,2 5,-2 z', fill: shade(hcol, -.3), 'stroke-width': 1 }); break;
+  }
+
+  /* scarf tail, then the near arm and what it carries */
+  const tail = el('g', {}, up);
+  ln(tail, 'path', { d: 'M-2.8,0 L3.2,0 L4.4,22 L-3.4,21 Z', fill: o.scarf, 'stroke-width': 1.4 });
+  nf(tail, 'path', { d: 'M-3,8 L3.6,8.4 M-3.2,14 L4,14.4', stroke: shade(o.scarf, -.3), 'stroke-width': 1.6 });
+  nf(tail, 'path', { d: 'M-3,21.5 l-.4,4 M-.8,21.8 l-.2,4 M1.6,22 l.2,4 M3.8,22.2 l.4,4', stroke: o.scarf, 'stroke-width': 1.2 });
+  const armNear = mkArm(false, up), ig = el('g', {}, armNear.hand), iph = rnd(0, 6);
+  const spec = o.item && ITEMS[o.item] ? ITEMS[o.item](ig, o, iph) : null;
+
+  const setLeg = (L, th, kn) => {
+    L.g.setAttribute('transform', `translate(0 ${HIP}) rotate(${th.toFixed(1)})`);
+    L.kn.setAttribute('transform', `translate(0 31) rotate(${kn.toFixed(1)})`);
+    L.ft.setAttribute('transform', `translate(0 29) rotate(${(-(th + kn) * .55).toFixed(1)})`);
+  };
+  const setArm = (A, a, b) => {
+    A.g.setAttribute('transform', `translate(0 ${SH}) rotate(${a.toFixed(1)})`);
+    A.fo.setAttribute('transform', `translate(0 24) rotate(${b.toFixed(1)})`);
+  };
+  const pose = (t, ph, freq, sing, act, ctx) => {
+    const walk = freq > 0, p = t * freq + ph, s = Math.sin(p), c = Math.cos(p), br = Math.sin(t * 1.8 + ph);
+    const A = act && ACT[act] ? ACT[act](t, ph, ctx || {}) : null, has = key => A && A[key] !== undefined;
+    if (walk) { setLeg(legNear, -27 * s, 5 + 38 * Math.max(0, c)); setLeg(legFar, 27 * s, 5 + 38 * Math.max(0, -c)); }
+    else { const tp = has('tap') ? A.tap : 0; setLeg(legNear, 1.5 - 9 * tp, 3 + 16 * tp); setLeg(legFar, -2, 3); }
+    let nU, nF, fU, fF;
+    if (spec && spec.near) { nU = spec.near.up + br * 1.2; nF = spec.near.fo + br * 1.5; }
+    else if (walk) { nU = 20 * s; nF = -(8 + 16 * Math.max(0, -s)); }
+    else { nU = 3 + br; nF = -7; }
+    if (spec && spec.far) { fU = spec.far.up + br; fF = spec.far.fo + br; }
+    else if (specF) { fU = -28 + br; fF = -96; }
+    else if (walk) { fU = -20 * s; fF = -(8 + 16 * Math.max(0, s)); }
+    else { fU = -3 - br; fF = -9; }
+    if (has('nU')) nU = A.nU; if (has('nF')) nF = A.nF; if (has('fU')) fU = A.fU; if (has('fF')) fF = A.fF;
+    setArm(armNear, nU, nF); setArm(armFar, fU, fF);
+    if (spec) {
+      ig.setAttribute('transform', `rotate(${(spec.base + (has('item') ? A.item : 0) + (walk ? (spec.sway || 0) * s : 0) - nU - nF).toFixed(1)})`);
+      if (spec.update) spec.update(t, ph);
+    }
+    if (specF) igF.setAttribute('transform', `rotate(${(specF.base - fU - fF).toFixed(1)})`);
+    const bobY = (walk ? -Math.abs(c) * 2.4 : -Math.abs(Math.sin(t * 1.6 + ph)) * .6) - (has('bob') ? A.bob : 0);
+    up.setAttribute('transform', `translate(0 ${bobY.toFixed(2)}) rotate(${(walk ? 2.2 : (has('lean') ? A.lean : 0)).toFixed(1)} 0 -66)`);
+    tail.setAttribute('transform', `translate(5 -108) rotate(${((walk ? 11 : 3) + 7 * Math.sin(t * 2.6 + ph)).toFixed(1)})`);
+    hd.setAttribute('transform', hdT(has('head') ? A.head : 0));
+    const mo = sing ? 1 + Math.abs(Math.sin(t * 5 + ph)) * 2.4 : (has('mouth') ? A.mouth : 0);
+    mouth.setAttribute('ry', mo.toFixed(2));
+    const bv = sing ? .7 : (has('breath') ? A.breath : 0);
+    breath.setAttribute('opacity', (bv * (.3 + .7 * Math.max(0, Math.sin(t * 1.4 + ph)))).toFixed(2));
+  };
+  pose(0, 0, 0, false);
+  return { root, mouth, pose, k };
+}
+
+function makeDog(parent, col) {
+  const root = el('g', {}, parent), bob = el('g', {}, root);
+  const legs = [-10, -5, 8, 13].map((x, i) => { const g = el('g', {}, bob); ln(g, 'line', { x1: x, y1: -12, x2: x, y2: -1, 'stroke-width': 5.5 }); nf(g, 'line', { x1: x, y1: -12, x2: x, y2: -1, stroke: col, 'stroke-width': 2.8, 'stroke-linecap': 'round' }); g.px = x; return g; });
+  const tail = el('g', {}, bob); ln(tail, 'path', { d: 'M-15,-20 q-6,-3 -9,-12', fill: 'none', 'stroke-width': 4 });
+  ln(bob, 'ellipse', { cx: 0, cy: -17, rx: 17, ry: 9, fill: col, 'stroke-width': 2.2 });
+  ln(bob, 'circle', { cx: 18, cy: -25, r: 7.5, fill: col, 'stroke-width': 2.2 });
+  ln(bob, 'ellipse', { cx: 25, cy: -23, rx: 5, ry: 3.4, fill: '#e8cfae', 'stroke-width': 1.6 });
+  nf(bob, 'circle', { cx: 28, cy: -24, r: 1.6, fill: INK }); nf(bob, 'circle', { cx: 20, cy: -27, r: 1.3, fill: INK });
+  ln(bob, 'path', { d: 'M13,-30 q-4,6 1,10 q4,-4 3,-9 z', fill: '#3a2a22', 'stroke-width': 1.4 });
+  nf(bob, 'rect', { x: 9, y: -19, width: 6, height: 5, fill: '#a8453a' });
+  return { root, pose(t, ph, f) {
+    const s = Math.sin(t * f + ph);
+    legs.forEach((g, i) => g.setAttribute('transform', `rotate(${((i % 2 ? -s : s) * 30).toFixed(1)} ${g.px} -12)`));
+    tail.setAttribute('transform', `rotate(${(Math.sin(t * 11 + ph) * 14).toFixed(1)} -15 -20)`);
+    bob.setAttribute('transform', `translate(0 ${(-Math.abs(Math.cos(t * f + ph)) * 2.2).toFixed(2)})`);
+  } };
+}
+
+const ITEM_MEN = ['umbrella', 'parcels', 'baguette', 'bag', 'cakebox', 'violin', 'bag', 'basket', 'umbrella'];
+const ITEM_WOMEN = ['bouquet', 'basket', 'handbag', 'muff', 'bag', 'cone', 'cup', 'cakebox', 'wreath', 'gift', 'baguette', 'bouquet'];
+const ITEM_KIDS = ['balloon', 'gift', 'balloon', 'wreath', 'gift', 'sled'];
+function randomLook(opt = {}) {
+  const kid = opt.kid ?? (R() < .2), fem = opt.fem ?? (R() < .5);
+  const look = {
+    kid, fem, coat: pick(COATS), skin: pick(SKIN), pants: fem ? pick(['#3a3340', '#2a2630', '#5a4a50']) : pick(['#33313f', '#3b3a4a', '#4a3f3a', '#2a2630']),
+    scarf: pick(['#efe5cf', '#c98a86', '#e0b043', '#2b3a5a', '#a8453a', '#6a4a6a']), glove: pick(['#2a2630', '#8f5a32', '#a8453a', '#efe5cf', '#2b3a5a']),
+    hairStyle: kid ? pick(['short', 'bob']) : fem ? pick(['bob', 'long', 'bun', 'bob']) : pick(['short', 'short', 'bald']),
+    hair: pick(['#2a2630', '#5a3a28', '#8a5a32', '#c9a15a', '#9a9a9a']),
+    hat: kid ? pick(['bobble', 'bobble', 'beret']) : fem ? pick(['beret', 'cloche', 'beret', 'cloche', 'none', 'bobble']) : pick(['top', 'bowler', 'flat', 'flat', 'top', 'bowler']),
+    hatc: pick(['#2a2630', '#2b3a5a', '#e0b043', '#efe5cf', '#6a4a6a', '#3d6a55', '#a8453a']), belt: fem ? R() < .7 : R() < .25, fur: fem && R() < .5,
+    stache: !fem && !kid && R() < .3, bare: R() < .2, spats: !fem && !kid && R() < .3,
+  };
+  look.item = opt.item ?? pick(kid ? ITEM_KIDS : fem ? ITEM_WOMEN : ITEM_MEN);
+  return Object.assign(look, opt.over || {});
+}
+
+const walkers = [], idlers = [], updaters = [];
+const lane = y => .7 + (y - 690) * .00355;                       // perspective scale for a given ground line
+function addWalker(parent, y, sc, x, dir, speed, look, withDog, bounce) {
+  speed *= 1.35; const p = makePerson(parent, look), eff = sc * (look.kid ? .66 : 1);
+  const w = { p, x, y, sc, dir, speed, ph: rnd(0, 6.28), freq: speed * .057 / eff, bounce, zone: null };
+  walkers.push(w);
+  if (withDog) { const d = makeDog(parent, pick(['#6b4a36', '#d8b27a', '#3a3a44'])); walkers.push({ p: d, x: x - dir * 50, y, sc: sc * .95, dir, speed, ph: rnd(0, 6), freq: speed * .26 / sc }); }
+  return w;
+}
+function idler(g, opt, x, y, sc, dir, act, ctx, sing) {
+  const p = makePerson(g, randomLook(opt)), o = { p, x, y, sc, dir, ph: rnd(0, 6.28), sing: !!sing, act, ctx };
+  idlers.push(o); return o;
+}
+
+/* 1 - strollers: the back row keeps to the left and right, behind the fountain and tree there is no room */
+[
+  { y: 690, sc: .7,  g: pl1, n: 2, sp: [22, 34], b: [-90, 560] },
+  { y: 690, sc: .7,  g: pl1, n: 2, sp: [22, 34], b: [1135, 1690] },
+  { y: 770, sc: 1.0, g: pl2, n: 4, sp: [30, 42] },
+  { y: 856, sc: 1.28, g: pl3, n: 3, sp: [40, 52] },
+].forEach((L, li) => {
+  for (let i = 0; i < L.n; i++) {
+    const dir = R() < .5 ? -1 : 1, speed = rnd(...L.sp);
+    const x = L.b ? rnd(L.b[0] + 40, L.b[1] - 40) : (i + R() * .7) * (1700 / L.n) - 60;
+    const look = randomLook({ kid: false }); const w = addWalker(L.g, L.y, L.sc, x, dir, speed, look, li === 2 && i === 2, L.b);
+    if (R() < .22) { const kl = randomLook({ kid: true, item: R() < .55 ? 'balloon' : (R() < .75 ? 'gift' : 'wreath') }); addWalker(L.g, L.y, L.sc, x - dir * 34, dir, speed, kl, false, L.b).ph = w.ph + 1; }
+  }
+});
+
+/* 2 - the café waiter, going back and forth with a tray */
+addWalker(pl1, 692, .72, 340, 1, 22, randomLook({ kid: false, fem: false, item: 'tray', over: { apron: true, coat: '#2a2630', hat: 'none', hairStyle: 'short', hair: '#2a2630', scarf: '#fbf3df', belt: false } }), false, [300, 480]);
+
+/* 3 - shoppers who go into a shop and come out with something */
+const SHOP_ITEM = { 'VIN CHAUD': 'cup', 'FONDUE': 'bag', 'CHOCOLAT': 'gift', 'RACLETTE': 'bag', 'BISCUITS': 'cakebox', 'JOUETS': 'gift' };
+function shopper(sh, idx) {
+  const base = randomLook({ kid: false, item: 'none' });
+  const pIn = makePerson(pl1, base), pOut = makePerson(pl1, Object.assign({}, base, { item: SHOP_ITEM[sh.name] || 'bag' }));
+  pIn.root.setAttribute('opacity', 0); pOut.root.setAttribute('opacity', 0);
+  const y0 = 658, y1 = 630, sc0 = .6, speed = 62, ph = rnd(0, 6), fr = speed * .057 / sc0;
+  const st = { s: 'wait', tm: 1 + idx * 2.2 + rnd(0, 4), x: 0, dir: 1, side: R() < .5 ? -1 : 1, u: 0 };
+  const dX = sh.doorX;
+  const put = (p, t) => {
+    const pr = Math.max(0, Math.min(1, (60 - Math.abs(st.x - dX)) / 60)), y = y0 + (y1 - y0) * pr, sc = sc0 - .07 * pr;
+    p.root.setAttribute('transform', `translate(${st.x.toFixed(1)} ${y.toFixed(1)}) scale(${st.dir * sc} ${sc})`);
+    p.pose(t, ph, fr);
+  };
+  updaters.push((t, dt) => {
+    switch (st.s) {
+      case 'wait': st.tm -= dt; if (st.tm <= 0) { st.s = 'in'; st.dir = st.side; st.x = dX - st.side * (200 + rnd(0, 80)); st.a = 0; } break;
+      case 'in': st.x += st.dir * speed * dt; st.a = Math.min(1, (st.a || 0) + dt / .9); pIn.root.setAttribute('opacity', st.a.toFixed(2)); put(pIn, t); if ((dX - st.x) * st.dir <= 0) { st.s = 'enter'; st.u = 0; } break;
+      case 'enter': st.u += dt; pIn.root.setAttribute('opacity', Math.max(0, 1 - st.u / .5).toFixed(2)); if (st.u > .5) { st.s = 'inside'; st.tm = 5 + rnd(0, 6); pIn.root.setAttribute('opacity', 0); } break;
+      case 'inside': st.tm -= dt; if (st.tm <= 0) { st.s = 'exit'; st.x = dX; st.dir = R() < .5 ? st.side : -st.side; st.u = 0; } break;
+      case 'exit': st.u += dt; st.x += st.dir * speed * dt; pOut.root.setAttribute('opacity', Math.min(1, st.u / .5).toFixed(2)); put(pOut, t);
+        if (Math.abs(st.x - dX) > 260) { st.s = 'wait'; st.tm = 3 + rnd(0, 9); pOut.root.setAttribute('opacity', 0); } break;
+    }
+  });
+}
+shops.forEach((sh, i) => { if (sh.name !== 'BRASSERIE') shopper(sh, i); });
+
+/* 4 - window shopping */
+[[1, .3, 1], [3, .62, -1], [4, .4, 1]].forEach(([si, fx_, dir]) => {
+  const sh = shops[si]; idler(pl1, { kid: false, item: 'none' }, sh.x + sh.w * fx_, 646, .62, dir, 'point');
+});
+
+/* people inside the shops, seen through the windows */
+shops.forEach((sh, i) => {
+  const id = 'sc' + i, cpp = el('clipPath', { id }, plShop); nf(cpp, 'rect', { x: sh.x + 1, y: sh.y + 1, width: sh.w - 2, height: sh.h - 2 });
+  const gs = el('g', { 'clip-path': `url(#${id})` }, plShop), count = sh.w > 62 ? 2 : 1;
+  for (let q = 0; q < count; q++) {
+    const look = randomLook({ kid: false, item: 'none' }); if (R() < .6) look.hat = 'none';
+    idlers.push({ p: makePerson(gs, look), x: sh.x + sh.w * (count === 1 ? .5 : (q ? .72 : .28)), y: sh.y + sh.h + 3, sc: .46, dir: R() < .5 ? 1 : -1, ph: rnd(0, 6), sing: false, slow: true });
+  }
+  ln(gs, 'rect', { x: sh.x - 1, y: sh.y + sh.h - 12, width: sh.w + 2, height: 13, fill: '#8a5a44', 'stroke-width': 1.8 });
+});
+
+/* 5 - talking in twos and threes */
+function chat(g, spots, opts) {
+  const off = rnd(0, 20);
+  spots.forEach(([x, y, dir], i) => idler(g, Object.assign({ kid: false }, opts[i] || {}), x, y, lane(y), dir, 'talk', { n: spots.length, i, off }));
+}
+chat(plMid, [[236, 766, 1], [282, 766, -1]], [{ fem: true, item: 'handbag' }, { fem: true, item: 'bag' }]);
+chat(plMid, [[1190, 800, 1], [1236, 800, -1]], [{ fem: false, item: 'bag' }, { fem: true, item: 'handbag' }]);
+
+/* 6 - café terrace outside the brasserie */
+[[338, 676, 'paper', 'read'], [410, 680, 'cup', 'sip']].forEach(([tx0, ty0, itemL, actL], ti) => {
+  const chairs = el('g', {}, plTerrace), folk = el('g', {}, plTerrace), tbl = el('g', {}, plTerrace);
+  [[-27, 1, itemL, actL], [27, -1, 'cup', 'sip']].forEach(([dx, face, item, act], k) => {
+    const cx = tx0 + dx;
+    ln(chairs, 'circle', { cx: cx - face * 14, cy: ty0 - 46, r: 9, fill: 'none', 'stroke-width': 2 });
+    ln(chairs, 'line', { x1: cx - face * 14, y1: ty0 - 24, x2: cx + face * 8, y2: ty0 - 24, 'stroke-width': 2.2 });
+    ln(chairs, 'line', { x1: cx - face * 12, y1: ty0 - 24, x2: cx - face * 14, y2: ty0 - 2, 'stroke-width': 2 });
+    ln(chairs, 'line', { x1: cx + face * 6, y1: ty0 - 24, x2: cx + face * 8, y2: ty0 - 2, 'stroke-width': 2 });
+    const look = { kid: false, item, fem: k ? true : (ti ? false : false), over: { hat: k || ti ? pick(['beret', 'cloche', 'none']) : pick(['bowler', 'flat', 'top']) } };
+    const o = idler(folk, look, cx, ty0 - 4, .86, face, act); o.ph += ti * 2 + k * 3;
+    const id = 'tc' + ti + k, cp = el('clipPath', { id }, folk); nf(cp, 'rect', { x: -40, y: -170, width: 80, height: 128 });
+    o.p.root.setAttribute('clip-path', `url(#${id})`);
+  });
+  ln(tbl, 'ellipse', { cx: tx0, cy: ty0 - 44, rx: 25, ry: 6.5, fill: '#fbf3df', 'stroke-width': 2.2 });
+  ln(tbl, 'line', { x1: tx0, y1: ty0 - 38, x2: tx0, y2: ty0 - 4, 'stroke-width': 3 });
+  ln(tbl, 'path', { d: `M${tx0 - 14},${ty0} Q${tx0},${ty0 - 8} ${tx0 + 14},${ty0}`, fill: 'none', 'stroke-width': 2.4 });
+  ln(tbl, 'ellipse', { cx: tx0 + 4, cy: ty0 - 47, rx: 4, ry: 1.8, fill: '#fff', 'stroke-width': 1.3 });
+  if (ti) {
+    ln(tbl, 'ellipse', { cx: tx0 - 6, cy: ty0 - 47, rx: 8, ry: 2.2, fill: '#fff', 'stroke-width': 1.1 });
+    ln(tbl, 'path', { d: `M${tx0-10},${ty0-49} q3,-5 7,-1 q-1,4 -5,3 z M${tx0-3},${ty0-49} q3,-5 7,-1 q-1,4 -5,3 z`, fill: '#d6a05a', 'stroke-width': .9 });
+  } else {
+    ln(tbl, 'path', { d: `M${tx0-14},${ty0-47} l3,-9 l3,9 z`, fill: '#e8d9a0', 'stroke-width': 1 });
+  }
+});
+
+/* 8 - the accordionist, a dancing child and a listener */
+(function () {
+  const x = 1020, y = 800;
+  idler(plMid, { kid: false, fem: false, item: 'accordion', over: { hat: 'flat', hatc: '#6a4a6a', coat: '#4a3f3a', stache: true, hairStyle: 'short', belt: false } }, x, y, .92, -1, 'play');
+  idler(plMid, { kid: true, item: 'none', over: { hat: 'bobble', hatc: '#a8453a', coat: '#d6a93f' } }, x - 62, y + 4, .92, 1, 'dance');
+  ln(plMid, 'ellipse', { cx: x - 44, cy: y + 5, rx: 14, ry: 4, fill: '#2a2630', 'stroke-width': 1.4 });
+  ln(plMid, 'path', { d: `M${x-52},${y+4} Q${x-44},${y-9} ${x-36},${y+4} Z`, fill: '#2a2630', 'stroke-width': 1.4 });
+  [[-48, 5], [-42, 6], [-38, 4]].forEach(([cx, cy]) => nf(plMid, 'circle', { cx: x + cx, cy: y + cy, r: 1.5, fill: '#d9a93a' }));
+  for (let n = 0; n < 3; n++) { const t = el('text', { x: x - 30 - n * 10, y: y - 100, class: 'note', style: `--dx:${-16 - n * 8}px;animation-delay:-${(n * 1.9).toFixed(1)}s` }, plNotes); t.textContent = n % 2 ? '♫' : '♪'; }
+})();
+
+/* 9 - the chestnut seller's cart, with a customer */
+(function () {
+  const cx = 1330, by = 712;
+  const back = el('g', {}, plMid);
+  cap(back, cx - 46, by - 62, cx - 46, by - 134, 4, 3.4, '#6b4a3a', 1.4);
+  ln(back, 'path', { d: `M${cx-68},${by-134} Q${cx-10},${by-176} ${cx+48},${by-134} Z`, fill: '#a8453a', 'stroke-width': 1.8 });
+  [-45, -22, 1, 24].forEach((dx, i) => nf(back, 'path', { d: `M${cx + dx},${by - 134} Q${cx + dx + 12},${by - 160} ${cx - 10 + (dx + 45) * .14 + 7},${by - 165}`, stroke: '#fbf3df', 'stroke-width': 4, fill: 'none', opacity: .9 }));
+  ln(back, 'path', { d: `M${cx-70},${by-132} Q${cx-10},${by-176} ${cx+50},${by-132}`, fill: 'none', 'stroke-width': 1.8 });
+  nf(back, 'path', { d: `M${cx-60},${by-139} Q${cx-10},${by-176} ${cx+40},${by-139}`, stroke: '#fff', 'stroke-width': 7, fill: 'none', opacity: .93, 'stroke-linecap': 'round' });
+  const vend = idler(plMid, { kid: false, fem: false, item: 'none', over: { hat: 'flat', hatc: '#3d6a55', coat: '#8f5a32', apron: true, stache: true } }, cx + 8, by - 8, .8, -1, 'stir');
+  const cpid = 'cartclip', cp = el('clipPath', { id: cpid }, plMid); nf(cp, 'rect', { x: -60, y: -170, width: 120, height: 130 });
+  vend.p.root.setAttribute('clip-path', `url(#${cpid})`);
+  const g = el('g', {}, plMid);
+  ln(g, 'rect', { x: cx - 38, y: by - 64, width: 76, height: 44, fill: '#8f5a32', 'stroke-width': 2 });
+  nf(g, 'path', { d: `M${cx-38},${by-48} L${cx+38},${by-48} M${cx-38},${by-34} L${cx+38},${by-34}`, stroke: INK, 'stroke-width': .9, opacity: .4, fill: 'none' });
+  ln(g, 'rect', { x: cx - 44, y: by - 70, width: 88, height: 7, rx: 2, fill: '#b58a4c', 'stroke-width': 1.8 });
+  [-1, 1].forEach(sd => { const wx = cx + sd * 40, wy = by - 22; ln(g, 'circle', { cx: wx, cy: wy, r: 22, fill: 'none', 'stroke-width': 3 }); ln(g, 'circle', { cx: wx, cy: wy, r: 3.4, fill: '#6b4a3a', 'stroke-width': 1.3 });
+    let d = ''; for (let a = 0; a < 8; a++) d += `M${wx},${wy} L${(wx + Math.cos(a * Math.PI / 4) * 21).toFixed(1)},${(wy + Math.sin(a * Math.PI / 4) * 21).toFixed(1)} `;
+    nf(g, 'path', { d, stroke: INK, 'stroke-width': 1.2, fill: 'none', opacity: .8 }); });
+  ln(g, 'path', { d: `M${cx+4},${by-70} L${cx+30},${by-70} L${cx+27},${by-84} L${cx+7},${by-84} Z`, fill: '#2a2630', 'stroke-width': 1.7 });
+  nf(g, 'ellipse', { cx: cx + 17, cy: by - 84, rx: 10.5, ry: 3, fill: '#e8742a', class: 'breathe', style: 'animation-duration:2.6s' });
+  [[-4, '#f0a24a'], [4, '#e8742a'], [11, '#f0a24a']].forEach(([dx, c]) => nf(g, 'circle', { cx: cx + 17 + dx - 4, cy: by - 85, r: 2, fill: c, class: 'tw', style: `animation-delay:-${(dx + 4) * .15}s` }));
+  for (let i = 0; i < 2; i++) nf(g, 'path', { d: `M${cx+17},${by-88} c-6,-6 -9,-13 -2,-18 c7,-5 10,-12 3,-17`, stroke: '#7d778c', 'stroke-width': 1.8, fill: 'none', 'stroke-linecap': 'round', class: 'puff', style: `--dx:${12 + i * 8}px;animation-delay:-${i * 3}s;animation-duration:6.4s` });
+  for (let i = 0; i < 9; i++) ln(g, 'ellipse', { cx: cx - 30 + (i % 4) * 5 + (i > 4 ? 2 : 0), cy: by - 73 - (i > 4 ? 4 : 0), rx: 3.4, ry: 2.8, fill: '#7a4a2a', 'stroke-width': .9 });
+  ln(g, 'rect', { x: cx - 30, y: by - 46, width: 40, height: 22, fill: '#2f4f44', 'stroke-width': 1.5 });
+  const t = el('text', { x: cx - 10, y: by - 37, 'text-anchor': 'middle', 'font-size': 6.8, 'font-family': 'Georgia,serif', 'font-weight': 700, fill: '#efe5cf' }, g); t.textContent = 'MARRONS';
+  const t2 = el('text', { x: cx - 10, y: by - 29, 'text-anchor': 'middle', 'font-size': 6.8, 'font-family': 'Georgia,serif', 'font-weight': 700, fill: '#efe5cf' }, g); t2.textContent = 'CHAUDS';
+  idler(plMid, { kid: false, fem: true, item: 'none' }, cx - 80, by + 12, .82, 1, 'point');
+})();
+
+/* 10 - snowball fight */
+(function () {
+  const y = 815, sc = lane(y);
+  const a = idler(plMid2, { kid: true, item: 'none', over: { coat: '#a8453a', hat: 'bobble', hatc: '#efe5cf' } }, 130, y, sc, 1, 'throw', { role: 0 });
+  const b = idler(plMid2, { kid: true, item: 'none', over: { coat: '#2b3a5a', hat: 'beret', hatc: '#e0b043' } }, 232, y, sc, -1, 'throw', { role: 1 });
+  const ball = nf(plMid2, 'circle', { r: 3.6 * sc, fill: '#fff', stroke: INK, 'stroke-width': 1.2, opacity: 0 });
+  const puff = el('g', { opacity: 0 }, plMid2);
+  [[-6, 0, 5], [5, -4, 4], [0, 5, 4]].forEach(([px, py, r]) => nf(puff, 'circle', { cx: px, cy: py, r: r * sc * .8, fill: '#fff', stroke: 'rgba(120,140,175,.6)', 'stroke-width': .8 }));
+  updaters.push(t => {
+    const T = 7, u = t % T, from = Math.floor(t / T) % 2 ? b : a, to = from === a ? b : a;
+    const sx = from.x + from.dir * 14 * sc * .66, sy = y - 88 * .66 * sc, ex = to.x, ey = y - 66 * .66 * sc;
+    if (u > 1.05 && u < 1.9) { const s = (u - 1.05) / .85; ball.setAttribute('opacity', 1); ball.setAttribute('cx', (sx + (ex - sx) * s).toFixed(1)); ball.setAttribute('cy', (sy + (ey - sy) * s - 30 * Math.sin(Math.PI * s)).toFixed(1)); }
+    else ball.setAttribute('opacity', 0);
+    if (u > 1.9 && u < 2.4) { const s = (u - 1.9) / .5; puff.setAttribute('opacity', (1 - s).toFixed(2)); puff.setAttribute('transform', `translate(${ex} ${ey}) scale(${(1 + s * 1.4).toFixed(2)})`); }
+    else puff.setAttribute('opacity', 0);
+  });
+})();
+
+/* 11 - carol singers */
+[[560, 802], [596, 808], [632, 802]].forEach(([x, y], i) => {
+  idler(plMid, { kid: false, item: 'songbook', fem: i === 1, over: { hat: i === 1 ? 'beret' : (i === 0 ? 'flat' : 'bobble') } }, x, y, .94, -1, null, null, true);
+  for (let n = 0; n < 2; n++) { const t = el('text', { x: x - 6 - n * 14, y: y - 150, class: 'note', style: `--dx:${-14 - n * 12}px;animation-delay:-${(i * 1.7 + n * 2.6).toFixed(1)}s` }, plNotes); t.textContent = n ? '♫' : '♪'; }
+});
+
+/* 12 - Santa's sleigh rides the wire every 30 seconds */
+(() => {
+  const WR = { x0: -40, y0: 205, x1: 1640, y1: 118 }, sl = (WR.y1 - WR.y0) / (WR.x1 - WR.x0), ang = Math.atan(sl) * 180 / Math.PI;
+  const g = el('g', { opacity: 0 }, fxFolk);
+  nf(g, 'ellipse', { cx: -20, cy: -6, rx: 120, ry: 34, fill: 'url(#glowG)', opacity: .55 });
+  const deer = [];
+  [34, 66, 98, 130].forEach((dx, i) => {
+    const d = el('g', { transform: `translate(${dx - 40} 0)` }, g), b = el('g', {}, d); deer.push(b);
+    nf(b, 'ellipse', { cx: 0, cy: -9, rx: 12, ry: 5.5, fill: '#6b3f2a' });
+    nf(b, 'ellipse', { cx: 11, cy: -15, rx: 5, ry: 3.6, fill: '#6b3f2a' });
+    nf(b, 'path', { d: 'M14,-18 l2,-9 l3,5 M14,-18 l-1,-9 l-4,4', stroke: '#e8d9a8', 'stroke-width': 1.6, fill: 'none' });
+    if (i === 3) nf(b, 'circle', { cx: 17, cy: -14, r: 2.2, fill: '#ff4a3a' });
+    nf(b, 'path', { d: 'M-8,-5 l-4,7 M-4,-4 l-3,7 M6,-4 l3,7 M10,-5 l5,6', stroke: '#4a2a1a', 'stroke-width': 2, 'stroke-linecap': 'round' });
+  });
+  nf(g, 'path', { d: 'M-4,-12 L-76,-12', stroke: '#e0b043', 'stroke-width': 1.2 });
+  const s = el('g', { transform: 'translate(-110 0)' }, g);
+  nf(s, 'path', { d: 'M-34,-4 Q-38,-22 -26,-30 L28,-30 Q40,-26 34,-8 L26,-2 Z', fill: '#c9962c' });
+  nf(s, 'path', { d: 'M-30,-6 Q-33,-20 -24,-27 L24,-27 Q33,-23 29,-10 Z', fill: '#d6342f' });
+  nf(s, 'path', { d: 'M-38,0 Q-6,4 40,-6', stroke: '#e8d9a8', 'stroke-width': 2.4, fill: 'none', 'stroke-linecap': 'round' });
+  nf(s, 'circle', { cx: -14, cy: -38, r: 7.5, fill: '#e9b48a' }); nf(s, 'path', { d: 'M-22,-40 Q-14,-60 -4,-42 Z', fill: '#d6342f' }); nf(s, 'circle', { cx: -4, cy: -45, r: 3, fill: '#fff' });
+  nf(s, 'path', { d: 'M-22,-34 Q-16,-22 -8,-34 Z', fill: '#fff' });
+  nf(s, 'rect', { x: -22, y: -34, width: 16, height: 8, fill: '#d6342f' });
+  nf(s, 'ellipse', { cx: 14, cy: -36, rx: 9, ry: 7, fill: '#8a5a3a' });
+  for (let k = 0; k < 7; k++) nf(g, 'circle', { cx: -138 + k * 22, cy: k % 2 ? -3 : -30, r: 2.4, fill: pick(['#ffd35a', '#ff7a6a', '#fff3c0']), class: 'tw', style: `animation-delay:-${(k * .4).toFixed(1)}s` });
+  updaters.push(t => {
+    const c = t % 30, T = 14;
+    if (c > T) { g.setAttribute('opacity', 0); return; }
+    const u = c / T, x = -200 + u * 2000, y = WR.y0 + sl * (x - WR.x0);
+    g.setAttribute('opacity', Math.min(1, u * 14, (1 - u) * 14).toFixed(2));
+    g.setAttribute('transform', `translate(${x.toFixed(1)} ${(y - 2).toFixed(1)}) rotate(${ang.toFixed(2)})`);
+    deer.forEach((b, i) => b.setAttribute('transform', `translate(0 ${(Math.sin(t * 7 + i * 1.2) * 1.8).toFixed(2)})`));
+  });
+})();
+/* ============================== snow ============================== */
+const flakes = [];
+[[110, .8, 1.6, 25, 45, .55], [95, 1.8, 2.8, 45, 75, .8], [42, 3.4, 5.4, 85, 135, 1]].forEach(([n, r0, r1, v0, v1, op]) => {
+  for (let i = 0; i < n; i++) {
+    const r = r0 + R() * (r1 - r0);
+    flakes.push({ r, op, x: R() * W, y: R() * H, vy: v0 + R() * (v1 - v0), sw: 8 + R() * 18, fr: .5 + R() * 1.2, ph: R() * 6.28, k: r / r1 + .3 });
+  }
+});
+const DPR = Math.min(2, window.devicePixelRatio || 1);
+snc.width = 1600 * DPR; snc.height = 900 * DPR; snx.scale(DPR, DPR);
+snx.fillStyle = '#fff'; snx.strokeStyle = 'rgba(120,140,175,.55)'; snx.lineWidth = .8;
+
+/* the painted backdrop never changes: bake it into one bitmap so it costs nothing per frame */
+(function () {
+  try {
+    const cl = bg.cloneNode(true); cl.setAttribute('xmlns', NS); cl.setAttribute('width', 3200); cl.setAttribute('height', 1800);
+    const st = document.createElementNS(NS, 'style'); st.textContent = [...document.querySelectorAll('style')].map(x => x.textContent).join('\n').replace(/animation[^;}]*;?/g, '');
+    cl.insertBefore(st, cl.firstChild);
+    const img = new Image(), url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(cl)], { type: 'image/svg+xml' }));
+    img.onload = () => {
+      const c = document.createElement('canvas'); c.width = 3200; c.height = 1800; c.getContext('2d').drawImage(img, 0, 0, 3200, 1800);
+      c.id = 'bg'; bg.replaceWith(c); URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  } catch (e) { /* keep the live SVG */ }
+})();
+
+/* ============================== loop ============================== */
+const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+let last = performance.now() / 1000;
+let pAcc = 0, pTick = 0;
+function frame(ms) {
+  const t = ms / 1000, dt = Math.min(.05, t - last); last = t;
+  pAcc += dt;
+  const doP = pAcc >= .031, pdt = pAcc;
+  if (doP) { pAcc = 0; pTick++; }
+  if (doP) for (const w of walkers) {
+    w.x += w.dir * w.speed * pdt;
+    if (w.bounce) { if (w.x > w.bounce[1]) w.dir = -1; else if (w.x < w.bounce[0]) w.dir = 1; }
+    else if (w.dir > 0 && w.x > 1720) w.x = -120; else if (w.dir < 0 && w.x < -120) w.x = 1720;
+    w.p.root.setAttribute('transform', `translate(${w.x.toFixed(1)} ${w.y}) scale(${w.dir * w.sc} ${w.sc})`);
+    w.p.pose(t, w.ph, w.freq);
+    if (w.zone) {                                               // back-lane strollers slip behind the big tree
+      const d = w.x < w.zone[0] ? w.zone[0] - w.x : w.x > w.zone[1] ? w.x - w.zone[1] : 0;
+      w.p.root.setAttribute('opacity', Math.min(1, d / 50).toFixed(2));
+    }
+  }
+  if (doP) for (const w of idlers) {
+    if (w.slow && pTick % 6) continue;
+    w.p.root.setAttribute('transform', `translate(${w.x} ${w.y}) scale(${w.dir * w.sc} ${w.sc})`);
+    w.p.pose(t, w.ph, 0, w.sing, w.act, w.ctx);
+  }
+  if (doP) for (const u of updaters) u(t, pdt);
+  const wind = 10 + Math.sin(t * .22) * 12;
+  for (const f of flakes) {
+    f.y += f.vy * dt; f.x += (wind * f.k + Math.sin(t * f.fr + f.ph) * f.sw) * dt;
+    if (f.y > H + 8) { f.y = -8; f.x = R() * W; }
+    if (f.x > W + 8) f.x = -8; else if (f.x < -8) f.x = W + 8;
+  }
+  snx.clearRect(0, 0, 1600, 900);
+  for (const f of flakes) { snx.globalAlpha = f.op; snx.beginPath(); snx.arc(f.x, f.y, f.r, 0, 6.2832); snx.fill(); snx.stroke(); }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+
+})();
+</script>
+</body>
+</html>
