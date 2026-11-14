@@ -9,7 +9,8 @@
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:#2a2733;overflow:hidden;font-family:Georgia,"Times New Roman",serif;color:var(--ink);-webkit-tap-highlight-color:transparent}
 #stage{position:fixed;inset:0;overflow:hidden;background:#e9e3d3}
-#stage>svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+#stage>svg,#stage>canvas{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:cover}
+
 #vignette{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 55%,rgba(0,0,0,0) 58%,rgba(46,28,52,.34) 100%)}
 #grain{mix-blend-mode:multiply;opacity:.55;pointer-events:none}
 
@@ -60,7 +61,7 @@ body.idle{cursor:none}
   <svg id="bg"  viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice"></svg>
   <svg id="fx"  viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice"></svg>
   <svg id="pe"  viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice"></svg>
-  <svg id="sn"  viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice"></svg>
+  <canvas id="sn" width="1600" height="900"></canvas>
   <svg id="grain" viewBox="0 0 100 100" preserveAspectRatio="none">
     <filter id="paper" x="0" y="0" width="100%" height="100%">
       <feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="3" seed="2"/>
@@ -102,12 +103,12 @@ body.idle{cursor:none}
    for any attribution line the licence asks for; it shows on hover).
    ===================================================================== */
 const TRACKS = [
-  { title: 'Jingle Bells', artist: 'The Reed Pittman Trio', credit: 'Jingle Bells by The Reed Pittman Trio', src: 'tracks/jingle-bells.mp3' },
-  { title: 'Silent Night', artist: 'The Reed Pittman Trio', credit: 'Silent Night by The Reed Pittman Trio', src: 'tracks/silent-night.mp3' },
-  { title: 'We Wish You a Merry Christmas', artist: 'The Reed Pittman Trio', credit: 'We Wish You a Merry Christmas by The Reed Pittman Trio', src: 'tracks/we-wish-you-a-merry-christmas.mp3' },
-  { title: 'O Little Town of Bethlehem', artist: 'The Reed Pittman Trio', credit: 'O Little Town of Bethlehem by The Reed Pittman Trio', src: 'tracks/o-little-town-of-bethlehem.mp3' },
-  { title: 'God Rest Ye Merry Gentlemen', artist: 'The Reed Pittman Trio', credit: 'God Rest Ye Merry Gentlemen by The Reed Pittman Trio', src: 'tracks/god-rest-ye-merry-gentlemen.mp3' },
-  { title: 'Auld Lang Syne', artist: 'The Reed Pittman Trio', credit: 'Auld Lang Syne by The Reed Pittman Trio', src: 'tracks/auld-lang-syne.mp3' },
+  { title: 'Jingle Bells', artist: 'The Reed Pittman Trio', credit: 'Jingle Bells by The Reed Pittman Trio', src: 'jingle-bells.mp3' },
+  { title: 'Silent Night', artist: 'The Reed Pittman Trio', credit: 'Silent Night by The Reed Pittman Trio', src: 'silent-night.mp3' },
+  { title: 'We Wish You a Merry Christmas', artist: 'The Reed Pittman Trio', credit: 'We Wish You a Merry Christmas by The Reed Pittman Trio', src: 'we-wish-you-a-merry-christmas.mp3' },
+  { title: 'O Little Town of Bethlehem', artist: 'The Reed Pittman Trio', credit: 'O Little Town of Bethlehem by The Reed Pittman Trio', src: 'o-little-town-of-bethlehem.mp3' },
+  { title: 'God Rest Ye Merry Gentlemen', artist: 'The Reed Pittman Trio', credit: 'God Rest Ye Merry Gentlemen by The Reed Pittman Trio', src: 'god-rest-ye-merry-gentlemen.mp3' },
+  { title: 'Auld Lang Syne', artist: 'The Reed Pittman Trio', credit: 'Auld Lang Syne by The Reed Pittman Trio', src: 'auld-lang-syne.mp3' },
 ];
 
 /* ============================ helpers ============================== */
@@ -179,7 +180,7 @@ function lnRough(p, tag, at, a) {
     at.fill = 'none';
   }
   const e = el('path', Object.assign({}, at, { d: d1 }), p);
-  if (at.stroke === INK && at['stroke-width'] > 1.1) {
+  if (at.stroke === INK && at['stroke-width'] > 2.2) {
     el('path', Object.assign({}, at, { d: roughD(d0, amp * 1.15), fill: 'none', 'stroke-width': +(at['stroke-width'] * .5).toFixed(2), 'stroke-opacity': .55 }), p);
   }
   return e;
@@ -204,7 +205,7 @@ const shade = (hex, k) => {                                      // darken (k<0)
 };
 
 /* ============================ layers =============================== */
-const bg = $('#bg'), fx = $('#fx'), pe = $('#pe'), sn = $('#sn');
+const bg = $('#bg'), fx = $('#fx'), pe = $('#pe'), snc = $('#sn'), snx = snc.getContext('2d');
 
 bg.innerHTML = `<defs>
   <linearGradient id="skyG" x1="0" y1="0" x2="0" y2="1">
@@ -1216,7 +1217,7 @@ shops.forEach((sh, i) => {
   const gs = el('g', { 'clip-path': `url(#${id})` }, plShop), count = sh.w > 62 ? 2 : 1;
   for (let q = 0; q < count; q++) {
     const look = randomLook({ kid: false, item: 'none' }); if (R() < .6) look.hat = 'none';
-    idlers.push({ p: makePerson(gs, look), x: sh.x + sh.w * (count === 1 ? .5 : (q ? .72 : .28)), y: sh.y + sh.h + 3, sc: .46, dir: R() < .5 ? 1 : -1, ph: rnd(0, 6), sing: false });
+    idlers.push({ p: makePerson(gs, look), x: sh.x + sh.w * (count === 1 ? .5 : (q ? .72 : .28)), y: sh.y + sh.h + 3, sc: .46, dir: R() < .5 ? 1 : -1, ph: rnd(0, 6), sing: false, slow: true });
   }
   ln(gs, 'rect', { x: sh.x - 1, y: sh.y + sh.h - 12, width: sh.w + 2, height: 13, fill: '#8a5a44', 'stroke-width': 1.8 });
 });
@@ -1360,38 +1361,60 @@ chat(plMid2, [[150, 838, 1], [200, 838, -1]], [{ fem: true, item: 'bag' }, { fem
 /* ============================== snow ============================== */
 const flakes = [];
 [[110, .8, 1.6, 25, 45, .55], [95, 1.8, 2.8, 45, 75, .8], [42, 3.4, 5.4, 85, 135, 1]].forEach(([n, r0, r1, v0, v1, op]) => {
-  const grp = el('g', { opacity: op }, sn);
   for (let i = 0; i < n; i++) {
     const r = r0 + R() * (r1 - r0);
-    const c = el('circle', { r, fill: '#fff', stroke: 'rgba(120,140,175,.55)', 'stroke-width': .8 }, grp);
-    flakes.push({ c, x: R() * W, y: R() * H, vy: v0 + R() * (v1 - v0), sw: 8 + R() * 18, fr: .5 + R() * 1.2, ph: R() * 6.28, k: r / r1 + .3 });
+    flakes.push({ r, op, x: R() * W, y: R() * H, vy: v0 + R() * (v1 - v0), sw: 8 + R() * 18, fr: .5 + R() * 1.2, ph: R() * 6.28, k: r / r1 + .3 });
   }
 });
+const DPR = Math.min(2, window.devicePixelRatio || 1);
+snc.width = 1600 * DPR; snc.height = 900 * DPR; snx.scale(DPR, DPR);
+snx.fillStyle = '#fff'; snx.strokeStyle = 'rgba(120,140,175,.55)'; snx.lineWidth = .8;
+
+/* the painted backdrop never changes: bake it into one bitmap so it costs nothing per frame */
+(function () {
+  try {
+    const cl = bg.cloneNode(true); cl.setAttribute('xmlns', NS); cl.setAttribute('width', 3200); cl.setAttribute('height', 1800);
+    const st = document.createElementNS(NS, 'style'); st.textContent = [...document.querySelectorAll('style')].map(x => x.textContent).join('\n').replace(/animation[^;}]*;?/g, '');
+    cl.insertBefore(st, cl.firstChild);
+    const img = new Image(), url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(cl)], { type: 'image/svg+xml' }));
+    img.onload = () => {
+      const c = document.createElement('canvas'); c.width = 3200; c.height = 1800; c.getContext('2d').drawImage(img, 0, 0, 3200, 1800);
+      c.id = 'bg'; bg.replaceWith(c); URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  } catch (e) { /* keep the live SVG */ }
+})();
 
 /* ============================== loop ============================== */
 const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 let last = performance.now() / 1000;
+let pAcc = 0, pTick = 0;
 function frame(ms) {
   const t = ms / 1000, dt = Math.min(.05, t - last); last = t;
-  for (const w of walkers) {
-    w.x += w.dir * w.speed * dt;
+  pAcc += dt;
+  const doP = pAcc >= .031, pdt = pAcc;
+  if (doP) { pAcc = 0; pTick++; }
+  if (doP) for (const w of walkers) {
+    w.x += w.dir * w.speed * pdt;
     if (w.bounce) { if (w.x > w.bounce[1]) w.dir = -1; else if (w.x < w.bounce[0]) w.dir = 1; }
     else if (w.dir > 0 && w.x > 1720) w.x = -120; else if (w.dir < 0 && w.x < -120) w.x = 1720;
     w.p.root.setAttribute('transform', `translate(${w.x.toFixed(1)} ${w.y}) scale(${w.dir * w.sc} ${w.sc})`);
     w.p.pose(t, w.ph, w.freq);
   }
-  for (const w of idlers) {
+  if (doP) for (const w of idlers) {
+    if (w.slow && pTick % 6) continue;
     w.p.root.setAttribute('transform', `translate(${w.x} ${w.y}) scale(${w.dir * w.sc} ${w.sc})`);
     w.p.pose(t, w.ph, 0, w.sing, w.act, w.ctx);
   }
-  for (const u of updaters) u(t, dt);
+  if (doP) for (const u of updaters) u(t, pdt);
   const wind = 10 + Math.sin(t * .22) * 12;
   for (const f of flakes) {
     f.y += f.vy * dt; f.x += (wind * f.k + Math.sin(t * f.fr + f.ph) * f.sw) * dt;
     if (f.y > H + 8) { f.y = -8; f.x = R() * W; }
     if (f.x > W + 8) f.x = -8; else if (f.x < -8) f.x = W + 8;
-    f.c.setAttribute('cx', f.x.toFixed(1)); f.c.setAttribute('cy', f.y.toFixed(1));
   }
+  snx.clearRect(0, 0, 1600, 900);
+  for (const f of flakes) { snx.globalAlpha = f.op; snx.beginPath(); snx.arc(f.x, f.y, f.r, 0, 6.2832); snx.fill(); snx.stroke(); }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
