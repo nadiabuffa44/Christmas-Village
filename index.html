@@ -97,10 +97,14 @@ function show(id) {
   const old = host.querySelector('.scene.on, .scene');
   const fr = document.createElement('iframe');
   fr.className = 'scene'; fr.src = sc.src; fr.title = sc.title; fr.setAttribute('tabindex', '-1');
-  fr.addEventListener('load', () => {
+  let shown = false;
+  const go = () => {                                   // fade the new scene in only once it has drawn itself
+    if (shown) return; shown = true; window.removeEventListener('message', onMsg);
     requestAnimationFrame(() => { fr.classList.add('on'); });
     document.querySelectorAll('.scene').forEach(f => { if (f !== fr) { f.classList.remove('on'); setTimeout(() => f.remove(), 1300); } });
-  });
+  };
+  const onMsg = e => { if (e.source === fr.contentWindow) go(); };
+  window.addEventListener('message', onMsg); setTimeout(go, 9000);
   host.appendChild(fr);
   cur = id; labels(id);
   try { localStorage.setItem('village-scene', id); } catch (e) {}

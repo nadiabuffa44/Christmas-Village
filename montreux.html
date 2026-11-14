@@ -1172,6 +1172,10 @@ const DPR = Math.min(2, window.devicePixelRatio || 1);
 snc.width = 1600 * DPR; snc.height = 900 * DPR; snx.scale(DPR, DPR);
 snx.fillStyle = '#fff'; snx.strokeStyle = 'rgba(120,140,175,.55)'; snx.lineWidth = .8;
 
+/* keep the stage hidden until the backdrop is baked and everyone is in place, then fade it in */
+const stageEl = document.getElementById('stage'); let revealed = false;
+function reveal() { if (revealed) return; revealed = true; requestAnimationFrame(() => requestAnimationFrame(() => { stageEl.style.opacity = 1; try { parent.postMessage('scene-ready', '*'); } catch (e) {} })); }
+stageEl.style.opacity = 0; stageEl.style.transition = 'opacity .8s ease'; setTimeout(reveal, 4500);
 /* the painted backdrop never changes: bake it into one bitmap so it costs nothing per frame */
 (function () {
   try {
@@ -1181,17 +1185,18 @@ snx.fillStyle = '#fff'; snx.strokeStyle = 'rgba(120,140,175,.55)'; snx.lineWidth
     const img = new Image(), url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(cl)], { type: 'image/svg+xml' }));
     img.onload = () => {
       const c = document.createElement('canvas'); c.width = 3200; c.height = 1800; c.getContext('2d').drawImage(img, 0, 0, 3200, 1800);
-      c.id = 'bg'; bg.replaceWith(c); URL.revokeObjectURL(url);
+      c.id = 'bg'; bg.replaceWith(c); URL.revokeObjectURL(url); reveal();
     };
+    img.onerror = reveal;
     img.src = url;
-  } catch (e) { /* keep the live SVG */ }
+  } catch (e) { reveal(); /* keep the live SVG */ }
 })();
 
 /* ============================== loop ============================== */
 const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 let last = performance.now() / 1000;
 let pAcc = 0, pTick = 0;
-function frame(ms) {
+function frame(ms, once) {
   const t = ms / 1000, dt = Math.min(.05, t - last); last = t;
   pAcc += dt;
   const doP = pAcc >= .031, pdt = pAcc;
@@ -1221,8 +1226,9 @@ function frame(ms) {
   }
   snx.clearRect(0, 0, 1600, 900);
   for (const f of flakes) { snx.globalAlpha = f.op; snx.beginPath(); snx.arc(f.x, f.y, f.r, 0, 6.2832); snx.fill(); snx.stroke(); }
-  requestAnimationFrame(frame);
+  if (!once) requestAnimationFrame(frame);
 }
+pAcc = .05; frame(last * 1000 + 50, true);   // put everyone in place before the first paint
 requestAnimationFrame(frame);
 
 
