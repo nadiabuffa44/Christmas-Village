@@ -68,17 +68,26 @@ const W = 1600, H = 900, G = 612;               // canvas, street-level baseline
 const LN = { stroke: INK, 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
 let ROUGH = 0;                                                    // set on while the people are drawn
 const _rp = document.createElementNS(NS, 'path');
-function roughD(d, amp) {                                         // re-draw a path as a wobbly, hand-held line
+const _rcache = new Map();                                        // the same limbs repeat on every person: measure each shape once
+function _sample(d) {
+  let c = _rcache.get(d); if (c) return c;
   _rp.setAttribute('d', d);
-  let L; try { L = _rp.getTotalLength(); } catch (e) { return d; }
-  if (!(L > 5)) return d;
-  const closed = /[zZ]\s*$/.test(d.trim()), n = Math.max(5, Math.round(L / 6.5)), a = Math.min(amp * .8, L * .05);
-  const k1 = rnd(.22, .45), k2 = rnd(.7, 1.3), p1 = rnd(0, 6.3), p2 = rnd(0, 6.3), pts = [];
+  let L; try { L = _rp.getTotalLength(); } catch (e) { return _rcache.set(d, c = { bad: true }), c; }
+  if (!(L > 5)) return _rcache.set(d, c = { bad: true }), c;
+  const n = Math.max(5, Math.round(L / 6.5)), S = [];
   for (let i = 0; i <= n; i++) {
     const l = L * i / n, p = _rp.getPointAtLength(l), a0 = _rp.getPointAtLength(Math.max(0, l - 1.2)), a1 = _rp.getPointAtLength(Math.min(L, l + 1.2));
-    let tx = a1.x - a0.x, ty = a1.y - a0.y; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+    let tx = a1.x - a0.x, ty = a1.y - a0.y; const tl = Math.hypot(tx, ty) || 1; S.push([l, p.x, p.y, tx / tl, ty / tl]);
+  }
+  _rcache.set(d, c = { L, n, S, closed: /[zZ]\s*$/.test(d.trim()) }); return c;
+}
+function roughD(d, amp) {                                         // re-draw a path as a wobbly, hand-held line
+  const c = _sample(d); if (c.bad) return d;
+  const { L, S, closed } = c, a = Math.min(amp * .8, L * .05);
+  const k1 = rnd(.22, .45), k2 = rnd(.7, 1.3), p1 = rnd(0, 6.3), p2 = rnd(0, 6.3), pts = [];
+  for (const [l, x, y, tx, ty] of S) {
     const o = a * (Math.sin(l * k1 + p1) * .65 + Math.sin(l * k2 + p2) * .35);
-    pts.push([p.x - ty * o, p.y + tx * o]);
+    pts.push([x - ty * o, y + tx * o]);
   }
   if (closed) pts.pop();
   const N = pts.length, g = i => closed ? pts[(i + N) % N] : pts[Math.max(0, Math.min(N - 1, i))], f = v => v.toFixed(1);
