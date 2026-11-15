@@ -333,15 +333,6 @@ function pot(parent, x, y, s = 1) {
 }
 [[130, G + 8], [276, G + 8], [420, G + 8], [566, G + 8], [706, G + 8], [1436, G + 8]].forEach(([x, y]) => pot(gLights, x, y, .9));
 
-/* a swag of lights across the open side of the market */
-(function () {
-  const P0 = [720, 340], P1 = [900, 440], P2 = [1080, 340];
-  nf(gLights, 'path', { d: `M${P0} Q${P1} ${P2}`, stroke: '#c9822c', 'stroke-width': 1.5, fill: 'none' });
-  for (let t = .08; t < .95; t += .09) {
-    const x = (1 - t) ** 2 * P0[0] + 2 * (1 - t) * t * P1[0] + t * t * P2[0], y = (1 - t) ** 2 * P0[1] + 2 * (1 - t) * t * P1[1] + t * t * P2[1];
-    bulbs.push({ x, y: y + 5, c: pick(['#ffb347', '#ffd27a', '#fff0c0']) });
-  }
-})();
 /* ============================== big tree =========================== */
 const treeBulbs = [];
 (function () {
@@ -494,6 +485,8 @@ nf(gFront, 'path', { d: 'M40,884 q80,-10 160,0 M720,890 q90,-8 190,0 M1320,886 q
 
 /* =========================== FX layer ============================== */
 const fxWin = el('g', {}, fx), fxLamp = el('g', {}, fx), fxSmoke = el('g', {}, fx), fxFolk = el('g', {}, fx), fxBulb = el('g', {}, fx);
+fx.insertBefore(gLamps, fxLamp); gLamps.removeAttribute('filter');   // lamp posts stand in front of the lit shop windows
+
 shops.forEach(s => {
   nf(fxWin, 'polygon', { points: `${s.x - 4},${G} ${s.x + s.w + 4},${G} ${s.x + s.w + 40},${G + 66} ${s.x - 36},${G + 66}`, fill: 'url(#floorG)', class: 'breathe', style: `animation-delay:-${(R() * 5).toFixed(2)}s;animation-duration:${rnd(4, 7).toFixed(1)}s` });
 });

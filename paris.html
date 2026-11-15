@@ -636,6 +636,8 @@ nf(gFront, 'path', { d: 'M40,884 q80,-10 160,0 M720,890 q90,-8 190,0 M1320,886 q
 
 /* =========================== FX layer ============================== */
 const fxWin = el('g', {}, fx), fxLamp = el('g', {}, fx), fxSmoke = el('g', {}, fx), fxFolk = el('g', {}, fx), fxBulb = el('g', {}, fx);
+fx.insertBefore(gLamps, fxLamp); gLamps.removeAttribute('filter');   // lamp posts stand in front of the lit shop windows
+
 
 shops.forEach((s, i) => {                    // warm light spilling on the snow
   nf(fxWin, 'polygon', { points: `${s.x-4},${G} ${s.x+s.w+4},${G} ${s.x+s.w+40},${G+66} ${s.x-36},${G+66}`, fill: 'url(#floorG)', class: 'breathe', style: `animation-delay:-${(R() * 5).toFixed(2)}s;animation-duration:${rnd(4, 7).toFixed(1)}s` });
